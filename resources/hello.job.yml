@@ -1,0 +1,26 @@
+# The hello-world job: one serverless notebook task that installs your arxiv_curator wheel,
+# loads project_config.yml and writes one row to the hello table in your schema of the target's
+# catalog (dev: llmops_dev.riccardo_tambone).
+# It runs as whoever deploys the bundle; the target's deploy principal does that from GitHub
+# Actions. Its name ends with the target, so the three deployments never collide. The course's
+# onboarding gives you CAN_MANAGE on the dev job and CAN_VIEW on the acc and prd jobs once they are
+# deployed, so this public file names nobody.
+resources:
+  jobs:
+    hello:
+      name: job-hello-riccardo-tambone-${bundle.target}
+      budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "6"
+            dependencies:
+              - ../dist/*.whl
+
+      tasks:
+        - task_key: hello
+          environment_key: default
+          notebook_task:
+            notebook_path: deployment_notebooks/hello.py
+            base_parameters:
+              env: ${bundle.target}

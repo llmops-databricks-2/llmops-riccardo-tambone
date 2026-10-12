@@ -1,0 +1,41 @@
+# Databricks Asset Bundle of llmops-riccardo-tambone, shaped like the course's llmops-course-code.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+
+bundle:
+  name: llmops-riccardo-tambone
+
+# The course package is built as a wheel and installed in every job environment.
+artifacts:
+  default:
+    type: whl
+    build: uv build
+    path: .
+
+include:
+  - resources/*.yml
+
+# Three targets in the one course workspace, each writing your schema in its own catalog
+# (project_config.yml). Each is deployed under the home folder of whoever deploys it: you from your
+# laptop. A deployment workflow is introduced in a later lecture. The workspace host is
+# set, so `databricks bundle validate -t dev` needs no profile to find it.
+targets:
+  # Your sandbox. Development mode prefixes every resource with "[dev" and the deployer's name,
+  # so your own deploy and the pipeline's never collide.
+  dev:
+    default: true
+    mode: development
+    workspace:
+      host: https://dbc-88df4c2c-4033.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
+
+  # Acceptance: deployed on every merge to main.
+  acc:
+    workspace:
+      host: https://dbc-88df4c2c-4033.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
+
+  # Production: deployed after acceptance, once you approve it.
+  prd:
+    workspace:
+      host: https://dbc-88df4c2c-4033.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}

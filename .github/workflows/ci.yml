@@ -1,0 +1,28 @@
+# Checks every pull request and every push to main: the package and its dev tools installed with
+# uv, the pre-commit hooks (hygiene and ruff), then the tests under tests/.
+# Actions are pinned by commit SHA; the tag is kept in the comment for the next bump.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the run still checking the previous one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # 30 times a healthy run: the org's repos share Free-plan Actions minutes
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - run: uv sync --extra ci
+      - run: uv run pre-commit run --all-files --show-diff-on-failure
+      - run: uv run pytest
