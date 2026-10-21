@@ -1,0 +1,41 @@
+# Paper ingestion job: searches arXiv for a topic with configurable ranking criteria
+# (relevance, submittedDate, lastUpdatedDate) and optional date filter, downloads PDFs
+# into the Unity Catalog Volume, and stores paper metadata in the `papers` Delta table.
+# Job-level `parameters` expose editable fields directly in the Databricks Jobs UI.
+resources:
+  jobs:
+    ingest_papers:
+      name: job-ingest-papers
+      budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
+      parameters:
+        - name: env
+          default: ${bundle.target}
+        - name: topic
+          default: "large language models graph rag"
+        - name: num_papers
+          default: "10"
+        - name: ranking_criteria
+          default: "relevance"
+        - name: criteria_date
+          default: ""
+        - name: categories
+          default: ""
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
+
+      tasks:
+        - task_key: ingest_papers
+          environment_key: default
+          notebook_task:
+            notebook_path: deployment_notebooks/ingest_papers.py
+            base_parameters:
+              env: "{{job.parameters.env}}"
+              topic: "{{job.parameters.topic}}"
+              num_papers: "{{job.parameters.num_papers}}"
+              ranking_criteria: "{{job.parameters.ranking_criteria}}"
+              criteria_date: "{{job.parameters.criteria_date}}"
+              categories: "{{job.parameters.categories}}"

@@ -37,8 +37,8 @@ requires = ["setuptools>=72.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where =["src"]
-include = ["arxiv_curator*"]
+where = ["src"]
+include = ["arxiv_curator*", "autographrs*"]
 
 [tool.setuptools.dynamic]
 version = { file = "version.txt" }
@@ -82,4 +82,4 @@ dev = [
 ]
 
 [tool.databricks.environment]
-environment_version = "6"
+environment_version = "5"
