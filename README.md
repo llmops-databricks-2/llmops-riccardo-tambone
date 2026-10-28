@@ -403,9 +403,9 @@ from autographrs.storage.delta import DeltaPaperStore
 
 store = DeltaPaperStore(load_config("project_config.yml", env="dev"))
 run = store.load_run(run_id)
-papers = store.load_papers(run_id)           # Ranked, published paper snapshot
-enrichments = store.load_enrichments(run_id) # Requires completed enrichment
-dataset = store.load_run_dataset(run_id)    # List of (Paper, PaperEnrichment)
+papers = store.load_papers(run_id)  # Ranked, published paper snapshot
+enrichments = store.load_enrichments(run_id)  # Requires completed enrichment
+dataset = store.load_run_dataset(run_id)  # List of (Paper, PaperEnrichment)
 ```
 
 Readers reject unpublished runs, duplicate keys, inconsistent counts and missing/orphan
