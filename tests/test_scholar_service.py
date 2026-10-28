@@ -12,7 +12,7 @@ from test_run_storage import MemorySource
 
 from autographrs.config import ProjectConfig
 from autographrs.enrichment.citation_service import CitationService
-from autographrs.enrichment.citations import CitationLookup, SemanticScholarCitationResolver, resolve_mutual_citations
+from autographrs.enrichment.citations import CitationLookup, SemanticScholarCitationResolver, fetch_bibliographies
 from autographrs.enrichment.openalex import OpenAlexCitationResolver
 from autographrs.enrichment.tagger import PaperTagger
 from autographrs.models import BibliographicReference
@@ -231,8 +231,8 @@ def test_default_pipeline_publishes_scholar_bibliography_and_provider_diagnostic
     assert store.load_run(result.run_id).warnings
 
 
-def test_scholar_provider_ids_create_generic_in_run_links() -> None:
-    """Non-arXiv IDs are linked through Scholar identities, not reinterpreted as arXiv IDs."""
+def test_scholar_provider_ids_preserved_for_generic_sources() -> None:
+    """Non-arXiv identities and references are preserved without treating them as arXiv IDs."""
     papers = [
         _make_paper("one", "A").model_copy(update={"source": "other", "doi": "10.1000/a"}),
         _make_paper("two", "B").model_copy(update={"source": "other", "doi": "10.1000/b"}),
@@ -242,10 +242,10 @@ def test_scholar_provider_ids_create_generic_in_run_links() -> None:
         {"paperId": "b", "referenceCount": 0, "references": []},
     ]
     with patch.object(SemanticScholarCitationResolver, "_request_json", return_value=payload):
-        refs, outgoing, incoming = resolve_mutual_citations(papers, SemanticScholarCitationResolver())
-    assert refs["one"] == []
-    assert outgoing["one"] == ["two"]
-    assert incoming["two"] == ["one"]
+        outcomes = fetch_bibliographies(papers, SemanticScholarCitationResolver())
+    assert outcomes["one"].references == set()
+    assert outcomes["one"].bibliography[0].target_id == "scholar:b"
+    assert outcomes["two"].provider_paper_id == "https://www.semanticscholar.org/paper/b"
 
 
 def test_retry_after_http_date_exceeds_budget_without_early_retry() -> None:

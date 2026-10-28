@@ -30,7 +30,7 @@ def run_ingestion(
     citation_provider: CitationProviderProtocol | None = None,
     run_id: str | None = None,
 ) -> IngestionResult:
-    """Search, download, enrich (tags, summary, mutual citations), and store papers.
+    """Search, download, enrich (tags, summary, bibliography), and store papers.
 
     Args:
         topic: Topic or search query string
@@ -44,7 +44,7 @@ def run_ingestion(
         source: Optional custom `PaperSource` provider (defaults to `ArxivSource`)
         store: Optional custom `DeltaPaperStore`
         download_pdfs: Whether to download PDF files into the Unity Catalog Volume
-        enrich: Whether to run LLM tool-calling enrichment and mutual citation resolution
+        enrich: Whether to run LLM tool-calling enrichment and bibliography retrieval
         tagger: Optional custom `PaperTagger`
         citation_provider: Optional custom `CitationProviderProtocol`
         run_id: Failed run to resume with unchanged parameters; None creates a new search

@@ -231,7 +231,7 @@ def test_arxiv_source_implements_protocol_and_filters_by_criteria() -> None:
     assert fake_client.last_search.sort_by == arxiv.SortCriterion.LastUpdatedDate
     assert len(papers) == 1
     assert papers[0].paper_id == "2405.00001"
-    assert papers[0].cited_paper_ids == ["2201.11111", "2305.00001", "2308.99999"]
+    assert "cited_paper_ids" not in papers[0].model_dump()
 
 
 def test_run_ingestion_downloads_pdfs_and_stores_in_delta(tmp_path: Path) -> None:

@@ -8,11 +8,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from test_enrichment import _make_paper
 
-from autographrs.enrichment.citations import SemanticScholarCitationResolver, resolve_mutual_citations
+from autographrs.enrichment.citations import SemanticScholarCitationResolver, fetch_bibliographies
 
 
-def test_batch_matches_scholar_ids_and_derives_incoming_links() -> None:
-    """Provider identity matching works even if a reference has no arXiv external ID."""
+def test_batch_preserves_scholar_ids_without_deriving_links() -> None:
+    """Keep provider identities even if a reference has no arXiv external ID."""
     resolver = SemanticScholarCitationResolver(min_interval=0)
     response = [
         {"paperId": "s2-a", "referenceCount": 0, "references": []},
@@ -28,13 +28,35 @@ def test_batch_matches_scholar_ids_and_derives_incoming_links() -> None:
     ]
     papers = [_make_paper("2401.00001", "Paper A"), _make_paper("2402.00002", "Paper B")]
     with patch.object(resolver, "_request_json", return_value=response) as request:
-        refs, outgoing, incoming = resolve_mutual_citations(papers, resolver)
+        outcomes = fetch_bibliographies(papers, resolver)
     assert request.call_count == 1
     assert request.call_args.kwargs["body"] == {"ids": ["ARXIV:2401.00001", "ARXIV:2402.00002"]}
-    assert refs["2402.00002"] == ["2301.00001", "2401.00001"]
-    assert outgoing["2402.00002"] == ["2401.00001"]
-    assert outgoing["2401.00001"] == []
-    assert incoming["2401.00001"] == ["2402.00002"]
+    assert outcomes["2402.00002"].references == {"2301.00001"}
+    assert outcomes["2402.00002"].bibliography[0].target_id == "scholar:s2-a"
+    assert outcomes["2401.00001"].provider_paper_id == "https://www.semanticscholar.org/paper/s2-a"
+
+
+def test_bibliography_does_not_depend_on_run_selection() -> None:
+    """Retrieval preserves the same reference whether its target was selected or not."""
+    resolver = SemanticScholarCitationResolver(min_interval=0)
+    citing = {"paperId": "s2-a", "referenceCount": 1, "references": [{"paperId": "s2-b", "title": "B"}]}
+    cited = {"paperId": "s2-b", "referenceCount": 0, "references": []}
+    papers = [_make_paper("2401.00001", "A"), _make_paper("2402.00002", "B")]
+    with patch.object(resolver, "_request_json", side_effect=[[citing], [citing, cited]]):
+        single = fetch_bibliographies(papers[:1], resolver)["2401.00001"]
+        batch = fetch_bibliographies(papers, resolver)["2401.00001"]
+    assert single.bibliography == batch.bibliography
+    assert single.bibliography[0].target_id == "scholar:s2-b"
+
+
+def test_batch_provider_must_return_an_outcome_for_each_paper() -> None:
+    """A missing outcome must fail instead of silently publishing incomplete data."""
+    resolver = SemanticScholarCitationResolver(min_interval=0)
+    with (
+        patch.object(resolver, "fetch_papers", return_value={}),
+        pytest.raises(ValueError, match="exactly one outcome"),
+    ):
+        fetch_bibliographies([_make_paper("2401.00001", "A")], resolver)
 
 
 def test_reference_pagination_reads_all_pages() -> None:
