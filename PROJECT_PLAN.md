@@ -316,6 +316,13 @@ graph LR
 - Provider predefinito Scholar: conserva tutti i riferimenti, con ID Scholar/DOI/arXiv,
   titolo, autori, anno e placeholder per voci senza identita'. Pagina le liste incomplete.
   Target `scholar:<id>`; nessuna eliminazione dei citati esterni ad arXiv.
+- Prima iterazione identita' autori: `paper_enrichment.authorships` e
+  `bibliography[].authorships` conservano nome, posizione nella lista del provider,
+  identificativi Scholar/OpenAlex/ORCID quando disponibili, provider e URL di evidenza.
+  Nessuna chiamata aggiuntiva per autore, nessuna ricerca ORCID per nome e nessuna fusione
+  tra provider o per omonimia. I nomi `authors` esistenti restano invariati.
+  Il fallback conserva separatamente le attribuzioni del paper di entrambi gli indici.
+  Valori mancanti/storici/HTML null; nessun backfill. Riconciliazione demandata al grafo.
 - Retry Scholar: 4 tentativi, pacing 1,1s, 429 senza Retry-After con backoff 10/20/40s
   piu' jitter; trasporto/5xx da 2s. Rispetta Retry-After numerico/HTTP-date entro 60s
   e budget condiviso di 90s di attese retry per bulk (pacing e timeout esclusi).

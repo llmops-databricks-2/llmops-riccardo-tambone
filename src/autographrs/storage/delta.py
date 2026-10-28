@@ -40,19 +40,26 @@ PAPERS_TABLE_DDL_SCHEMA = (
     "ingested_at TIMESTAMP"
 )
 
+AUTHORSHIPS_DDL_TYPE = (
+    "ARRAY<STRUCT<name: STRING, position: INT, "
+    "identifiers: STRUCT<semantic_scholar: STRING, openalex: STRING, orcid: STRING>, "
+    "provider: STRING, evidence_url: STRING>>"
+)
+
 PAPER_ENRICHMENT_DDL_SCHEMA = (
     "run_id STRING, "
     "paper_id STRING, "
     "source STRING, "
     "title STRING, "
     "authors ARRAY<STRING>, "
+    f"authorships {AUTHORSHIPS_DDL_TYPE}, "
     "tags ARRAY<STRING>, "
     "arxiv_category ARRAY<STRING>, "
     "summary STRING, "
     "bibliography ARRAY<STRUCT<reference_id: STRING, position: INT, label: STRING, text: STRING, "
     "urls: ARRAY<STRING>, arxiv_ids: ARRAY<STRING>, dois: ARRAY<STRING>, target_id: STRING, "
     "match_method: STRING, evidence_url: STRING, provider_id: STRING, title: STRING, "
-    "authors: ARRAY<STRING>, publication_year: INT>>, "
+    f"authors: ARRAY<STRING>, publication_year: INT, authorships: {AUTHORSHIPS_DDL_TYPE}>>, "
     "citation_status STRING, "
     "citation_error STRING, "
     "citation_source STRING, "
@@ -141,6 +148,9 @@ def enrichments_to_records(enrichments: list[PaperEnrichment]) -> list[dict[str,
             "source": item.source,
             "title": item.title,
             "authors": list(item.authors),
+            "authorships": (
+                [authorship.model_dump() for authorship in item.authorships] if item.authorships is not None else None
+            ),
             "tags": list(item.tags),
             "arxiv_category": list(item.arxiv_category),
             "summary": item.summary,
@@ -530,6 +540,7 @@ def enrich_papers(
                 run_id=run_id,
                 title=paper.title,
                 authors=list(paper.authors),
+                authorships=outcomes[paper.paper_id].authorships,
                 tags=llm_tags,
                 arxiv_category=arxiv_cats,
                 summary=summary,

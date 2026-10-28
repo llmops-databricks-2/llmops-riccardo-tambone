@@ -210,6 +210,7 @@ La chiave logica e' la stessa di `papers`: `(run_id, source, paper_id)`.
 |---|---|---|
 | Identita' | `run_id`, `source`, `paper_id` | Collegarsi al paper corretto senza mescolare ricerche |
 | Metadati per la visualizzazione | `title`, `authors` | Rendere titolo e autori disponibili anche nell'enrichment |
+| Attribuzioni autore | `authorships` | Conservare nomi, posizione e ID autore restituiti dai provider, senza unirli per nome |
 | Tag estratti dall'LLM | `tags` | Collegare paper semanticamente affini |
 | Categorie arXiv umanizzate | `arxiv_category` | Mostrare categorie leggibili, distinte dai tag LLM |
 | Riassunto LLM | `summary` | Fornire una sintesi distinta dall'abstract originale |
@@ -251,10 +252,40 @@ rimangono distinti dai riferimenti scoperti.
 | `evidence_url` | Lavoro citante nell'indice oppure URL HTML con anchor della voce |
 | `provider_id` | URL identificativo del lavoro citato nel provider |
 | `title`, `authors`, `publication_year` | Metadati del citato quando disponibili, null se non recuperati o in righe HTML/storiche |
+| `authorships` | Autori strutturati del citato, con ID ed evidenza del provider quando disponibili |
 
 Un riferimento non risolto resta consultabile ma non viene unito ad altre voci sulla sola
-somiglianza del testo. i target OpenAlex/DOI/arXiv potranno diventare nodi condivisi del futuro grafo;
+somiglianza del testo. I target OpenAlex/DOI/arXiv potranno diventare nodi condivisi del futuro grafo;
 i placeholder non rappresentano paper globalmente disambiguati.
+
+#### Identificativi degli autori
+
+`paper_enrichment.authorships` descrive gli autori del paper selezionato;
+`bibliography[].authorships` quelli del singolo lavoro citato. Ogni attribuzione contiene:
+
+| Campo | Contenuto |
+|---|---|
+| `name`, `position` | Nome riportato dal provider e posizione a partire da 1 nella sua lista |
+| `identifiers.semantic_scholar` | `authorId` Scholar, quando restituito |
+| `identifiers.openalex` | URL identificativo autore OpenAlex, quando restituito |
+| `identifiers.orcid` | ORCID restituito da OpenAlex, senza ricerca per nome |
+| `provider` | `semantic_scholar` oppure `openalex` |
+| `evidence_url` | URL del lavoro cui si riferisce l'attribuzione; per citati senza URL/ID, pagina del citante come evidenza bibliografica |
+
+Questi dati provengono dalle chiamate ai paper gia' esistenti, anche per la bibliografia
+paginata: nessuna chiamata API aggiuntiva per autore. `authors` rimane la lista dei nomi
+per la visualizzazione; nei paper selezionati conserva i nomi originali della fonte.
+Non si associano ID ai nomi di questa lista per posizione o somiglianza.
+
+Se viene chiamato OpenAlex come fallback, le attribuzioni del paper recuperate da entrambi
+i provider vengono conservate separatamente, anche quando il risultato bibliografico scelto
+cambia. `provider` ed `evidence_url` indicano la provenienza di ogni attribuzione; `position`
+e' locale alla lista di quel provider. Non e' una riconciliazione tra persone.
+Gli autori omonimi rimangono distinti e gli ID assenti restano null.
+`authorships` null significa dato non disponibile (anche HTML o righe storiche), mentre
+`[]` rappresenta una lista esplicitamente vuota. Nessun backfill automatico.
+Il futuro graph builder usera' questi identificativi senza assumere che un profilo
+Scholar/OpenAlex sia una prova infallibile dell'identita' della persona.
 
 Per consultare anche i riferimenti esterni:
 

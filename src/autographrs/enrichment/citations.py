@@ -14,7 +14,7 @@ from typing import Literal, Protocol, runtime_checkable
 from loguru import logger
 from pydantic import BaseModel, Field, TypeAdapter
 
-from autographrs.models import BibliographicReference, CitationProviderReport, Paper
+from autographrs.models import AuthorIdentifiers, Authorship, BibliographicReference, CitationProviderReport, Paper
 from autographrs.sources.arxiv import canonical_arxiv_id
 
 SEMANTIC_SCHOLAR_BASE_URL = "https://api.semanticscholar.org/graph/v1/paper"
@@ -25,6 +25,7 @@ class CitationLookup(BaseModel):
 
     references: set[str] = Field(default_factory=set)
     bibliography: list[BibliographicReference] = Field(default_factory=list)
+    authorships: list[Authorship] | None = None
     provider_paper_id: str | None = None
     provider_identities: list[str] = Field(default_factory=list)
     attempts: list[CitationProviderReport] = Field(default_factory=list)
@@ -42,6 +43,7 @@ class _ExternalIds(BaseModel):
 
 class _ScholarAuthor(BaseModel):
     name: str
+    author_id: str | None = Field(default=None, alias="authorId")
 
 
 class _ScholarPaper(BaseModel):
@@ -216,6 +218,21 @@ class SemanticScholarCitationResolver:
         return self._fetch_identifiers(identifiers)
 
     @staticmethod
+    def _authorships(paper: _ScholarPaper, evidence_url: str) -> list[Authorship] | None:
+        if paper.authors is None:
+            return None
+        return [
+            Authorship(
+                name=author.name,
+                position=position,
+                identifiers=AuthorIdentifiers(semantic_scholar=author.author_id),
+                provider="semantic_scholar",
+                evidence_url=evidence_url,
+            )
+            for position, author in enumerate(paper.authors, 1)
+        ]
+
+    @staticmethod
     def _bibliography(
         references: list[_ScholarPaper | None], citing: _ScholarPaper, own_id: str
     ) -> list[BibliographicReference]:
@@ -256,6 +273,13 @@ class SemanticScholarCitationResolver:
                 provider_id=provider_id,
                 title=paper.title if paper else None,
                 authors=[author.name for author in paper.authors] if paper and paper.authors is not None else None,
+                authorships=(
+                    SemanticScholarCitationResolver._authorships(
+                        paper, provider_id or paper.url or f"https://www.semanticscholar.org/paper/{citing.paper_id}"
+                    )
+                    if paper
+                    else None
+                ),
                 publication_year=paper.year if paper else None,
             )
             entries.setdefault(target, entry)
@@ -299,7 +323,11 @@ class SemanticScholarCitationResolver:
             inline_references = list(item.references or [])
             references = list(inline_references)
             provider_id = f"https://www.semanticscholar.org/paper/{item.paper_id}"
-            lookup = CitationLookup(provider_paper_id=provider_id, provider_identities=[provider_id])
+            lookup = CitationLookup(
+                provider_paper_id=provider_id,
+                provider_identities=[provider_id],
+                authorships=self._authorships(item, provider_id),
+            )
             if item.reference_count is None or item.reference_count > len(references):
                 if blocked is not None:
                     lookup.status = "partial"
