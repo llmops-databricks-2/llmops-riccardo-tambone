@@ -7,6 +7,7 @@ resources:
     ingest_papers:
       name: job-ingest-papers
       budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
+      max_concurrent_runs: 1
       parameters:
         - name: env
           default: ${bundle.target}
@@ -19,6 +20,8 @@ resources:
         - name: criteria_date
           default: ""
         - name: categories
+          default: ""
+        - name: run_id
           default: ""
       environments:
         - environment_key: default
@@ -39,3 +42,4 @@ resources:
               ranking_criteria: "{{job.parameters.ranking_criteria}}"
               criteria_date: "{{job.parameters.criteria_date}}"
               categories: "{{job.parameters.categories}}"
+              run_id: "{{job.parameters.run_id}}"

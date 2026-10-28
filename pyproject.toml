@@ -46,7 +46,7 @@ version = { file = "version.txt" }
 [tool.pytest.ini_options]
 addopts = "-s --no-header --no-summary"
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "tests"]
 
 [tool.ruff]
 line-length = 120
