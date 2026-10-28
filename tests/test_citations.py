@@ -65,13 +65,26 @@ def test_reference_pagination_reads_all_pages() -> None:
     responses = [
         [{"paperId": "s2-a", "referenceCount": 2, "references": []}],
         {"data": [{"citedPaper": {"paperId": "s2-b", "externalIds": {"ArXiv": "2402.00002"}}}], "next": 1},
-        {"data": [{"citedPaper": {"paperId": "s2-c", "externalIds": {"ArXiv": "2403.00003"}}}]},
+        {
+            "data": [
+                {
+                    "citedPaper": {
+                        "paperId": "s2-c",
+                        "externalIds": {"ArXiv": "2403.00003"},
+                        "authors": [{"authorId": "a3", "name": "Alice"}],
+                    }
+                }
+            ]
+        },
     ]
     with patch.object(resolver, "_request_json", side_effect=responses) as request:
         result = resolver.fetch_batch(["2401.00001"])["2401.00001"]
     assert result.references == {"2402.00002", "2403.00003"}
     assert result.status == "ok"
     assert "offset=1" in request.call_args.args[0]
+    assert result.bibliography[1].authorships is not None
+    assert result.bibliography[1].authorships[0].identifiers.semantic_scholar == "a3"
+    assert "fields=paperId,externalIds,title,authors,year,url" in request.call_args.args[0]
 
 
 def test_retry_after_and_api_key_are_used() -> None:

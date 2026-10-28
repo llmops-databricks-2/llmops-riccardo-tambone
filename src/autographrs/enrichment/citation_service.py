@@ -32,15 +32,22 @@ class CitationService:
             outcome = primary[paper.paper_id]
             reports = [self._report(outcome)]
             identities = list(outcome.provider_identities)
+            authorships = outcome.authorships
             if not outcome.bibliography and outcome.status != "disabled":
                 secondary = self.openalex.fetch_for_paper(paper)
+                if secondary.authorships is not None:
+                    authorships = [*(authorships or []), *secondary.authorships]
                 reports.append(self._report(secondary))
                 if secondary.provider_paper_id:
                     identities.append(secondary.provider_paper_id)
                 if secondary.bibliography or (not outcome.references and secondary.status in {"ok", "partial"}):
                     outcome = secondary
             results[paper.paper_id] = outcome.model_copy(
-                update={"attempts": reports, "provider_identities": list(dict.fromkeys(identities))},
+                update={
+                    "attempts": reports,
+                    "provider_identities": list(dict.fromkeys(identities)),
+                    "authorships": authorships,
+                },
                 deep=True,
             )
         return results

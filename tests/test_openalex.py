@@ -71,6 +71,55 @@ def test_provider_preserves_external_metadata_and_provider_identities() -> None:
     assert all(call.args[0].full_url.startswith("https://api.openalex.org/works?") for call in request.call_args_list)
 
 
+def test_author_identifiers_are_kept_for_source_and_references_without_extra_requests() -> None:
+    """Keep ordered OpenAlex/ORCID evidence and same-name authors without matching them."""
+    first = _work("W1", "2401.00001", ["https://openalex.org/W2", "https://openalex.org/W3"])
+    first["authorships"] = [
+        {
+            "author": {
+                "id": "https://openalex.org/A1",
+                "display_name": "Alice",
+                "orcid": "https://orcid.org/0000-0002-1825-0097",
+            }
+        },
+        {"author": {"id": None, "display_name": "Alice", "orcid": None}},
+    ]
+    cited = _work("W2")
+    cited["authorships"] = [{"author": {"id": "https://openalex.org/A2", "display_name": "Alice"}}]
+    with (
+        patch("urllib.request.urlopen", side_effect=[_response([first]), _response([cited])]) as request,
+        patch("autographrs.enrichment.openalex.time.sleep"),
+    ):
+        outcome = OpenAlexCitationResolver().fetch_references_and_citations("2401.00001")
+    assert request.call_count == 2
+    assert outcome.authorships is not None
+    assert [author.position for author in outcome.authorships] == [1, 2]
+    assert outcome.authorships[0].identifiers.openalex == "https://openalex.org/A1"
+    assert outcome.authorships[0].identifiers.orcid == "https://orcid.org/0000-0002-1825-0097"
+    assert outcome.authorships[1].identifiers.openalex is None
+    assert outcome.authorships[1].identifiers.orcid is None
+    assert outcome.authorships[0].evidence_url == first["id"]
+    reference, missing = outcome.bibliography
+    assert reference.authors == ["Alice"]
+    assert reference.authorships is not None
+    assert reference.authorships[0].identifiers.openalex == "https://openalex.org/A2"
+    assert reference.authorships[0].evidence_url == cited["id"]
+    assert missing.authorships is None
+
+
+@pytest.mark.parametrize("authors", [None, []])
+def test_missing_and_empty_author_lists_remain_distinct(authors: list[object] | None) -> None:
+    """Missing metadata is not interpreted as an explicitly empty author list."""
+    work = _work("W1", "2401.00001")
+    if authors is None:
+        work.pop("authorships")
+    else:
+        work["authorships"] = authors
+    with patch("urllib.request.urlopen", return_value=_response([work])):
+        outcome = OpenAlexCitationResolver().fetch_references_and_citations("2401.00001")
+    assert outcome.authorships == authors
+
+
 def test_identity_requires_exact_location_not_title_similarity() -> None:
     """A search response containing an unrelated work is not accepted as a matching source."""
     with patch("urllib.request.urlopen", return_value=_response([_work("W1", "9999.00001")])) as request:

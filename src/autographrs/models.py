@@ -90,6 +90,24 @@ class Paper(BaseModel):
         return re.sub(r"[^A-Za-z0-9._-]", "_", self.paper_id)
 
 
+class AuthorIdentifiers(BaseModel):
+    """Identifiers reported by a provider, not inferred from an author's name."""
+
+    semantic_scholar: str | None = None
+    openalex: str | None = None
+    orcid: str | None = None
+
+
+class Authorship(BaseModel):
+    """One provider's author attribution, with position in that provider's author list."""
+
+    name: str | None = None
+    position: int = Field(ge=1)
+    identifiers: AuthorIdentifiers = Field(default_factory=AuthorIdentifiers)
+    provider: Literal["semantic_scholar", "openalex"]
+    evidence_url: str
+
+
 class BibliographicReference(BaseModel):
     """One bibliography entry, retained even without a resolvable paper identifier."""
 
@@ -106,6 +124,7 @@ class BibliographicReference(BaseModel):
     provider_id: str | None = None
     title: str | None = None
     authors: list[str] | None = None
+    authorships: list[Authorship] | None = None
     publication_year: int | None = None
 
 
@@ -128,6 +147,10 @@ class PaperEnrichment(BaseModel):
     authors: list[str] = Field(
         default_factory=list,
         description="Ordered list of author names (kept for direct Obsidian display)",
+    )
+    authorships: list[Authorship] | None = Field(
+        default=None,
+        description="Provider author attributions; separate evidence, not merged by name or position",
     )
     tags: list[str] = Field(
         default_factory=list,

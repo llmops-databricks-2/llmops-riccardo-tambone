@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from autographrs.enrichment.arxiv_html import normalize_doi
 from autographrs.enrichment.citations import CitationLookup
-from autographrs.models import BibliographicReference, Paper
+from autographrs.models import AuthorIdentifiers, Authorship, BibliographicReference, Paper
 from autographrs.sources.arxiv import canonical_arxiv_id
 
 _BASE_URL = "https://api.openalex.org/works"
@@ -24,7 +24,9 @@ _ARXIV_ID = re.compile(r"(?:\d{4}\.\d{4,5}|[a-zA-Z][a-zA-Z.-]*/\d{7})(?:v\d+)?")
 
 
 class _Author(BaseModel):
+    id: str | None = None
     display_name: str | None = None
+    orcid: str | None = None
 
 
 class _Authorship(BaseModel):
@@ -41,7 +43,7 @@ class _Work(BaseModel):
     doi: str | None = None
     title: str | None = None
     publication_year: int | None = None
-    authorships: list[_Authorship] = Field(default_factory=list)
+    authorships: list[_Authorship] | None = None
     locations: list[_Location] = Field(default_factory=list)
     referenced_works: list[str] | None = None
 
@@ -200,9 +202,28 @@ class OpenAlexCitationResolver:
         return None
 
     @staticmethod
+    def _authorships(work: _Work) -> list[Authorship] | None:
+        if work.authorships is None:
+            return None
+        return [
+            Authorship(
+                name=item.author.display_name,
+                position=position,
+                identifiers=AuthorIdentifiers(openalex=item.author.id, orcid=item.author.orcid),
+                provider="openalex",
+                evidence_url=work.id,
+            )
+            for position, item in enumerate(work.authorships, 1)
+        ]
+
+    @staticmethod
     def _reference(identifier: str, position: int, citing: _Work, work: _Work | None) -> BibliographicReference:
         short = _short_id(identifier)
-        authors = [item.author.display_name for item in work.authorships if item.author.display_name] if work else None
+        authors = (
+            [item.author.display_name for item in work.authorships if item.author.display_name]
+            if work and work.authorships is not None
+            else None
+        )
         urls = [identifier]
         if work:
             urls.extend(location.landing_page_url for location in work.locations if location.landing_page_url)
@@ -221,6 +242,7 @@ class OpenAlexCitationResolver:
             provider_id=identifier,
             title=work.title if work else None,
             authors=authors,
+            authorships=OpenAlexCitationResolver._authorships(work) if work else None,
             publication_year=work.publication_year if work else None,
         )
 
@@ -297,6 +319,7 @@ class OpenAlexCitationResolver:
                 status="partial" if errors else "ok",
                 error=error,
                 provider_paper_id=work.id,
+                authorships=self._authorships(work),
                 bibliography=bibliography,
                 references={identifier for entry in bibliography for identifier in entry.arxiv_ids},
             )

@@ -15,7 +15,7 @@ from autographrs.enrichment.citation_service import CitationService
 from autographrs.enrichment.citations import CitationLookup, SemanticScholarCitationResolver, fetch_bibliographies
 from autographrs.enrichment.openalex import OpenAlexCitationResolver
 from autographrs.enrichment.tagger import PaperTagger
-from autographrs.models import BibliographicReference
+from autographrs.models import AuthorIdentifiers, Authorship, BibliographicReference
 from autographrs.pipeline import run_ingestion
 from autographrs.storage.delta import DeltaPaperStore
 
@@ -24,12 +24,16 @@ def _payload() -> list[dict[str, object]]:
     return [
         {
             "paperId": "source-a",
+            "authors": [
+                {"name": "Alice", "authorId": "author-a"},
+                {"name": "Alice", "authorId": None},
+            ],
             "referenceCount": 4,
             "references": [
                 {
                     "paperId": "outside",
                     "title": "External article",
-                    "authors": [{"name": "Alice"}],
+                    "authors": [{"name": "Alice", "authorId": "author-outside"}],
                     "year": 2020,
                     "externalIds": {"DOI": "10.1000/ABC"},
                 },
@@ -57,6 +61,14 @@ def test_scholar_retains_external_doi_and_unresolved_references() -> None:
     assert article.target_id == "scholar:outside"
     assert article.title == "External article"
     assert article.authors == ["Alice"]
+    assert article.authorships is not None
+    assert article.authorships[0].identifiers.semantic_scholar == "author-outside"
+    assert article.authorships[0].evidence_url == "https://www.semanticscholar.org/paper/outside"
+    assert result.authorships is not None
+    assert [author.position for author in result.authorships] == [1, 2]
+    assert [author.identifiers.semantic_scholar for author in result.authorships] == ["author-a", None]
+    assert all(author.name == "Alice" for author in result.authorships)
+    assert doi_only.authorships is None
     assert article.publication_year == 2020
     assert article.dois == ["10.1000/abc"]
     assert doi_only.target_id == "doi:10.1000/other"
@@ -202,6 +214,37 @@ def test_useful_scholar_data_is_not_overwritten_or_queried_twice() -> None:
     assert len(outcome.attempts) == 1
 
 
+def test_fallback_keeps_author_evidence_without_cross_provider_merging() -> None:
+    """Same-name attributions from different providers remain independent, including failed fallback."""
+    service = CitationService()
+    paper = _make_paper("2401.00001", "A")
+    scholar_author = Authorship(
+        name="Alice",
+        position=1,
+        identifiers=AuthorIdentifiers(semantic_scholar="s1"),
+        provider="semantic_scholar",
+        evidence_url="https://www.semanticscholar.org/paper/source-a",
+    )
+    openalex_author = Authorship(
+        name="Alice",
+        position=1,
+        identifiers=AuthorIdentifiers(openalex="https://openalex.org/A1"),
+        provider="openalex",
+        evidence_url="https://openalex.org/W1",
+    )
+    primary = CitationLookup(status="partial", authorships=[scholar_author])
+    secondary = _external_lookup().model_copy(update={"authorships": [openalex_author]})
+    for fallback in (secondary, CitationLookup(source="openalex", status="error")):
+        with (
+            patch.object(service.scholar, "fetch_papers", return_value={paper.paper_id: primary}) as scholar,
+            patch.object(service.openalex, "fetch_for_paper", return_value=fallback) as openalex,
+        ):
+            outcome = service.fetch_papers([paper])[paper.paper_id]
+        assert scholar.call_count == openalex.call_count == 1
+        assert outcome.authorships == ([scholar_author, openalex_author] if fallback is secondary else [scholar_author])
+    assert primary.authorships == [scholar_author]
+
+
 def test_default_pipeline_publishes_scholar_bibliography_and_provider_diagnostics(tmp_path: Path) -> None:
     """The deployed default preserves structured data and reports failed primary lookups."""
     config = ProjectConfig.from_yaml(str(Path(__file__).resolve().parents[1] / "project_config.yml"), "dev")
@@ -228,7 +271,22 @@ def test_default_pipeline_publishes_scholar_bibliography_and_provider_diagnostic
     assert enrichment.citation_lookups is not None
     assert enrichment.citation_lookups[0].status == "partial"
     assert enrichment.citation_paper_ids == ["https://www.semanticscholar.org/paper/source-a"]
+    assert enrichment.authorships is not None
+    assert enrichment.authorships[0].identifiers.semantic_scholar == "author-a"
+    assert enrichment.authors == ["Alice Smith"]
+    assert enrichment.bibliography[0].authorships is not None
+    assert enrichment.bibliography[0].authorships[0].identifiers.semantic_scholar == "author-outside"
     assert store.load_run(result.run_id).warnings
+    row = store.spark.tables[store.full_enrichment_table_name][0]  # type: ignore[attr-defined]
+    assert row["authorships"][0]["identifiers"]["semantic_scholar"] == "author-a"
+    assert row["bibliography"][0]["authorships"][0]["identifiers"]["semantic_scholar"] == "author-outside"
+    row.pop("authorships")
+    for reference in row["bibliography"]:
+        reference.pop("authorships")
+    legacy = store.load_enrichments(result.run_id)[0]
+    assert legacy.authorships is None
+    assert legacy.bibliography is not None
+    assert legacy.bibliography[0].authorships is None
 
 
 def test_scholar_provider_ids_preserved_for_generic_sources() -> None:
