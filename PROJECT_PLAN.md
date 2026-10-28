@@ -349,9 +349,11 @@ graph LR
 - Verifica correttiva locale sugli ID della run: `2412.05830` recupera 31 riferimenti
   (30 con titolo); `2410.12096`, `2501.05032`, `2406.16167`, `2405.11357` vengono trovati
   tramite le location alternative ma al momento restituiscono zero riferimenti nell'indice.
-- `referenced_arxiv_ids` resta un sottoinsieme; liste entranti/uscenti interne derivate
-  tramite ID arXiv, DOI e match univoco dell'identita' Scholar/OpenAlex.
-  Grafo aperto basato su `bibliography`.
+- Ingestion ed enrichment si fermano a `bibliography`: non calcolano relazioni.
+  Il futuro graph builder indipendente ricostruira' gli archi dalle bibliografie salvate,
+  inclusi i citati esterni. Le vecchie colonne `referenced_arxiv_ids`, `cites_in_set`,
+  `cited_by_in_set` e `papers.cited_paper_ids` non vengono piu' prodotte o lette;
+  eventuali colonne e valori storici Delta rimangono senza migrazione o backfill.
 - I tre provider sono anche selezionabili esplicitamente in Python.
   HTML non e' un fallback automatico. Nessun servizio PDF o nuova dipendenza.
 - Metadata e riferimenti sono snapshot della run; nessuna espansione ricorsiva, download

@@ -12,7 +12,7 @@ from autographrs.enrichment.arxiv_html import (
     normalize_doi,
     parse_arxiv_bibliography,
 )
-from autographrs.enrichment.citations import resolve_mutual_citations
+from autographrs.enrichment.citations import fetch_bibliographies
 
 DOCUMENT_URL = "https://arxiv.org/html/2401.00001v2"
 HTML = """
@@ -132,8 +132,8 @@ def test_transport_failure_is_explicit() -> None:
     assert "TimeoutError" in (outcome.error or "")
 
 
-def test_explicit_html_resolver_and_doi_matching_within_run() -> None:
-    """The optional HTML path resolves in-run DOI identities as well as arXiv IDs."""
+def test_explicit_html_resolver_preserves_doi_and_arxiv_identities() -> None:
+    """The optional HTML path retains DOI and arXiv identifiers without building links."""
     papers = [_make_paper("2401.00001", "A"), _make_paper("2402.00002", "B"), _make_paper("2403.00003", "C")]
     papers[2].doi = "https://doi.org/10.1000/ABC"
     responses = [HtmlResponse(HTML.encode()), HtmlResponse(b"<html/>"), HtmlResponse(b"<html/>")]
@@ -141,12 +141,11 @@ def test_explicit_html_resolver_and_doi_matching_within_run() -> None:
         patch("urllib.request.urlopen", side_effect=responses) as request,
         patch("autographrs.enrichment.arxiv_html.time.sleep"),
     ):
-        references, outgoing, incoming = resolve_mutual_citations(papers, citation_provider=ArxivHtmlCitationResolver())
+        outcomes = fetch_bibliographies(papers, citation_provider=ArxivHtmlCitationResolver())
     assert request.call_count == 3
     assert all(call.args[0].full_url.startswith("https://arxiv.org/html/") for call in request.call_args_list)
-    assert references["2401.00001"] == ["2402.00002", "hep-th/9901001"]
-    assert outgoing["2401.00001"] == ["2402.00002", "2403.00003"]
-    assert incoming["2403.00003"] == ["2401.00001"]
+    assert outcomes["2401.00001"].references == {"2402.00002", "hep-th/9901001"}
+    assert outcomes["2401.00001"].bibliography[1].dois == ["10.1000/abc"]
 
 
 def test_polite_pacing_and_invalid_identifier() -> None:
@@ -169,8 +168,8 @@ def test_normalize_doi_preserves_balanced_parentheses() -> None:
     assert normalize_doi("https://doi.org/10.1000/ABC(def).") == "10.1000/abc(def)"
 
 
-def test_ambiguous_doi_does_not_create_arbitrary_in_run_edges() -> None:
-    """Multiple selected records with one DOI require disambiguation, including self matches."""
+def test_ambiguous_doi_is_preserved_without_matching_selected_papers() -> None:
+    """A DOI shared by selected records remains a bibliography entry, not a resolved edge."""
     papers = [_make_paper("2401.00001", "A"), _make_paper("2403.00003", "C")]
     for paper in papers:
         paper.doi = "10.1000/abc"
@@ -178,8 +177,8 @@ def test_ambiguous_doi_does_not_create_arbitrary_in_run_edges() -> None:
         patch("urllib.request.urlopen", side_effect=[HtmlResponse(HTML.encode()), HtmlResponse(b"<html/>")]),
         patch("autographrs.enrichment.arxiv_html.time.sleep"),
     ):
-        _, outgoing, _ = resolve_mutual_citations(papers, citation_provider=ArxivHtmlCitationResolver())
-    assert outgoing["2401.00001"] == []
+        outcomes = fetch_bibliographies(papers, citation_provider=ArxivHtmlCitationResolver())
+    assert outcomes["2401.00001"].bibliography[1].dois == ["10.1000/abc"]
 
 
 def test_plain_url_reference_and_void_markup() -> None:

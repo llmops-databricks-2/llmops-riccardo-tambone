@@ -1,8 +1,8 @@
-"""Enrichment modules: LLM tool-calling tagger and mutual citation resolver."""
+"""Enrichment modules: LLM tagging and bibliography retrieval."""
 
 from autographrs.enrichment.arxiv_html import ArxivHtmlCitationResolver
 from autographrs.enrichment.citation_service import CitationService
-from autographrs.enrichment.citations import SemanticScholarCitationResolver, resolve_mutual_citations
+from autographrs.enrichment.citations import SemanticScholarCitationResolver, fetch_bibliographies
 from autographrs.enrichment.llm import create_gateway_openai_client
 from autographrs.enrichment.openalex import OpenAlexCitationResolver
 from autographrs.enrichment.tagger import PaperTagger
@@ -14,5 +14,5 @@ __all__ = [
     "CitationService",
     "SemanticScholarCitationResolver",
     "create_gateway_openai_client",
-    "resolve_mutual_citations",
+    "fetch_bibliographies",
 ]

@@ -13,7 +13,7 @@ from test_ingestion import FakeSparkSession
 from test_run_storage import MemorySource
 
 from autographrs.config import ProjectConfig
-from autographrs.enrichment.citations import resolve_mutual_citations
+from autographrs.enrichment.citations import fetch_bibliographies
 from autographrs.enrichment.openalex import OpenAlexCitationResolver
 from autographrs.enrichment.tagger import PaperTagger
 from autographrs.pipeline import run_ingestion
@@ -41,12 +41,11 @@ def _response(works: list[dict[str, object]]) -> io.BytesIO:
     return io.BytesIO(json.dumps({"results": works}).encode())
 
 
-def test_default_provider_preserves_external_metadata_and_openalex_edges() -> None:
-    """Two selected papers can link by provider ID even if the cited metadata has no arXiv URL."""
+def test_provider_preserves_external_metadata_and_provider_identities() -> None:
+    """Preserve provider IDs even if cited metadata has no arXiv URL."""
     papers = [_make_paper("2401.00001", "A"), _make_paper("2402.00002", "B")]
     first = _work("W1", papers[0].paper_id, ["https://openalex.org/W2", "https://openalex.org/W3"])
     external = _work("W3", doi="https://doi.org/10.1000/external")
-    outcomes = {}
     with (
         patch(
             "urllib.request.urlopen",
@@ -58,11 +57,9 @@ def test_default_provider_preserves_external_metadata_and_openalex_edges() -> No
         ) as request,
         patch("autographrs.enrichment.openalex.time.sleep"),
     ):
-        _, outgoing, incoming = resolve_mutual_citations(
-            papers, citation_provider=OpenAlexCitationResolver(), lookup_outcomes=outcomes
-        )
-    assert outgoing[papers[0].paper_id] == [papers[1].paper_id]
-    assert incoming[papers[1].paper_id] == [papers[0].paper_id]
+        outcomes = fetch_bibliographies(papers, citation_provider=OpenAlexCitationResolver())
+    assert outcomes[papers[0].paper_id].bibliography[0].target_id == "openalex:W2"
+    assert outcomes[papers[1].paper_id].provider_paper_id == "https://openalex.org/W2"
     assert outcomes[papers[0].paper_id].source == "openalex"
     reference = outcomes[papers[0].paper_id].bibliography[1]
     assert reference.target_id == "openalex:W3"
@@ -251,7 +248,7 @@ def test_zero_indexed_references_is_unknown_coverage_not_verified_empty_bibliogr
     assert "coverage is unknown" in (outcome.error or "")
 
 
-def test_non_arxiv_papers_resolve_by_doi_and_link_by_provider_identity() -> None:
+def test_non_arxiv_papers_resolve_by_doi_and_preserve_provider_identity() -> None:
     """Source-local IDs must never be treated as arXiv identifiers."""
     papers = [
         _make_paper("12345", "PubMed A").model_copy(
@@ -270,9 +267,9 @@ def test_non_arxiv_papers_resolve_by_doi_and_link_by_provider_identity() -> None
         ) as request,
         patch("autographrs.enrichment.openalex.time.sleep"),
     ):
-        _, outgoing, incoming = resolve_mutual_citations(papers, citation_provider=OpenAlexCitationResolver())
-    assert outgoing["12345"] == ["67890"]
-    assert incoming["67890"] == ["12345"]
+        outcomes = fetch_bibliographies(papers, citation_provider=OpenAlexCitationResolver())
+    assert outcomes["12345"].bibliography[0].target_id == "openalex:W2"
+    assert outcomes["67890"].provider_paper_id == "https://openalex.org/W2"
     filters = [parse_qs(urlsplit(call.args[0].full_url).query)["filter"][0] for call in request.call_args_list]
     assert filters[0] == "doi:10.1000/a"
     assert all("arxiv.org/abs/" not in value for value in filters)

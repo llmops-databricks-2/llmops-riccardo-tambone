@@ -137,9 +137,14 @@ riferimenti indicizzati producono `partial`. Un paper non trovato e' `not_found`
 Una lista vuota non prova l'assenza di bibliografia; `ok` non certifica la copertura
 completa dell'indice o la disponibilita' di ogni metadato.
 
-`referenced_arxiv_ids` rimane il sottoinsieme dei riferimenti con ID arXiv.
-`cites_in_set` e `cited_by_in_set` restano limitati alla selezione, con match tramite ID
-arXiv, DOI o identita' del provider univoca. Per il futuro grafo aperto va usata **`bibliography`**.
+L'enrichment si ferma a **`bibliography`** e non costruisce relazioni tra paper.
+Il futuro graph builder leggera' la bibliografia per costruire archi, compresi quelli
+verso opere esterne alla selezione. Non e' ancora implementato.
+Le vecchie colonne `referenced_arxiv_ids`, `cites_in_set`, `cited_by_in_set` e
+`papers.cited_paper_ids` non vengono piu' scritte o lette dall'applicazione.
+Tabelle Delta gia' esistenti possono mantenerle: i valori storici, inclusi quelli di
+run ritentate, non vengono cancellati o aggiornati e non vanno usati come grafo attuale.
+Le nuove tabelle non le contengono; nuove righe in tabelle esistenti le avranno null.
 Lo schema Spark esplicito e l'evoluzione Delta includono i nuovi metadati nested;
 le vecchie righe restano leggibili con i nuovi attributi null, senza backfill automatico.
 Avviare una **nuova run** per provare il metodo; una run completata non viene riarricchita.
@@ -163,7 +168,7 @@ passa al resolver l'intero `Paper`: `source`, `paper_id`, DOI e URL della pagina
 - Nessun ID locale di un altro repository viene interpretato come ID arXiv; nessun match
   basato soltanto sul titolo. URL non indicizzati o DOI assenti possono impedire la risoluzione.
 - I riferimenti mantengono target Scholar/OpenAlex/DOI indipendenti dalla fonte iniziale.
-  `referenced_arxiv_ids` e' soltanto un sottoinsieme specifico, non il contratto generale del grafo.
+  La bibliografia e' il dato di ingresso del futuro grafo.
 - Le categorie di altre fonti rimangono in `papers.categories`: non vengono convertite con
   la tassonomia arXiv. In quel caso `arxiv_category` e' vuoto e i tag LLM restano disponibili.
 
@@ -192,7 +197,6 @@ Non si tratta di un catalogo globale in cui ogni paper compare una sola volta.
 | Classificazione originale | `categories`, `primary_category` | Conservare i codici arXiv, come `cs.LG` |
 | Riferimenti bibliografici | `doi`, `journal_ref` | Conservare identificatori e informazioni editoriali quando disponibili |
 | Collegamenti | `html_url`, `pdf_url`, `pdf_volume_path` | Raggiungere la fonte e il PDF scaricato |
-| Citazioni recuperate | `cited_paper_ids` | Conservare gli identificativi arXiv dei riferimenti risolti |
 | Provenienza della ricerca | `search_topic`, `ranking_criteria`, `criteria_date`, `ingested_at` | Tracciare la ricerca e l'acquisizione che hanno prodotto la riga |
 
 L'abstract originale rimane in questa tabella, distinto dal riassunto prodotto dall'LLM.
@@ -209,29 +213,22 @@ La chiave logica e' la stessa di `papers`: `(run_id, source, paper_id)`.
 | Tag estratti dall'LLM | `tags` | Collegare paper semanticamente affini |
 | Categorie arXiv umanizzate | `arxiv_category` | Mostrare categorie leggibili, distinte dai tag LLM |
 | Riassunto LLM | `summary` | Fornire una sintesi distinta dall'abstract originale |
-| Riferimenti risolti | `referenced_arxiv_ids` | Conservare riferimenti con identificativo arXiv, anche esterni alla selezione |
 | Riferimenti recuperati | `bibliography` | Conservare tutti i riferimenti restituiti dal provider, inclusi quelli esterni ad arXiv |
-| Citazioni interne | `cites_in_set` | Indicare quali paper della stessa run vengono citati |
-| Citazioni ricevute interne | `cited_by_in_set` | Indicare quali paper della stessa run citano questo paper |
 | Stato del recupero | `citation_status`, `citation_error`, `citation_source`, `citation_fetched_at` | Distinguere recuperi riusciti, dati parziali, rate limit ed errori |
 | Esiti dei provider | `citation_lookups` | Fonte, stato, errore e timestamp per ogni provider chiamato, compreso il primario fallito prima del fallback |
 | Identita' del paper negli indici | `citation_paper_ids` | URL identificativi del paper citante nei provider risolti, utili per riconciliare nodi selezionati e riferimenti |
 | Data arricchimento | `enriched_at` | Sapere quando e' stato prodotto l'enrichment |
 
-Esempio: nella run selezioniamo A, B e C. Se A cita B e un paper esterno D:
+Esempio: nella run selezioniamo A, B e C. Se il provider riporta che A cita B e un
+paper esterno D:
 
 ```text
 A
-  referenced_arxiv_ids: [B, D]
-  cites_in_set: [B]
-B
-  cited_by_in_set: [A]
+  bibliography: [riferimento a B, riferimento a D]
 ```
 
-Il futuro grafo della selezione potra' creare l'arco diretto `A -> B`. D rimane un
-riferimento esterno e non diventa automaticamente un nodo della selezione.
-Le citazioni ricevute interne sono derivate dai riferimenti recuperati, non sono il
-conteggio globale delle citazioni del paper. Una lista vuota con stato `rate_limited`
+Il futuro grafo aperto potra' creare gli archi diretti `A -> B` e `A -> D`,
+includendo D come nodo esterno. Una lista vuota con stato `rate_limited`
 non significa "nessuna citazione": significa che il dato non e' stato ottenuto.
 Anche un recupero `ok` dipende dalla copertura dell'indice bibliografico, non certifica
 la completezza della bibliografia originale.

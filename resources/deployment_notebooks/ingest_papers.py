@@ -50,8 +50,8 @@ assert len(dataset) == published.paper_count == published.enrichment_count
 print(f"Verified published run {published.run_id}: status={published.status}, warnings={published.warnings}")
 references = [reference for _, enrichment in dataset for reference in (enrichment.bibliography or [])]
 print(
-    "cites_in_set / cited_by_in_set cover selected papers only. "
-    "All retrieved outgoing references, including external works, are in bibliography."
+    "Retrieved references, including external works, are in bibliography. "
+    "Citation relationships will be built separately by the graph module."
 )
 print("Citation retrieval: Scholar batch first, OpenAlex for empty results; per-provider outcomes in citation_lookups.")
 print(

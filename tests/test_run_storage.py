@@ -133,6 +133,11 @@ def test_retry_reuses_selection_and_does_not_duplicate_partially_written_tables(
     for read in (store.load_papers, store.load_enrichments, store.load_run_dataset):
         with pytest.raises(ValueError, match="not ready"):
             read(run_id)
+    legacy_enrichment = store.spark.tables[store.full_enrichment_table_name][0]  # type: ignore[attr-defined]
+    legacy_enrichment.update(
+        referenced_arxiv_ids=["old-reference"], cites_in_set=["old-outgoing"], cited_by_in_set=["old-incoming"]
+    )
+    store.spark.tables[store.full_table_name][0]["cited_paper_ids"] = ["old-reference"]  # type: ignore[attr-defined]
     source.papers = [_make_paper("2402.00002", "Would be a different search result")]
     with patch("autographrs.enrichment.tagger.fetch_arxiv_category_taxonomy", return_value=FAKE_TAXONOMY):
         result = run_ingestion(
@@ -152,6 +157,14 @@ def test_retry_reuses_selection_and_does_not_duplicate_partially_written_tables(
     assert len(store.spark.tables[store.full_table_name]) == 1  # type: ignore[attr-defined]
     assert len(store.spark.tables[store.full_enrichment_table_name]) == 1  # type: ignore[attr-defined]
     assert store.load_run(run_id).attempt_id != failed.attempt_id
+    assert legacy_enrichment["cites_in_set"] == ["old-outgoing"]
+    assert legacy_enrichment["referenced_arxiv_ids"] == ["old-reference"]
+    paper, enrichment = store.load_run_dataset(run_id)[0]
+    assert "cited_paper_ids" not in paper.model_dump()
+    assert "cites_in_set" not in enrichment.model_dump()
+    merges = [query for query in store.spark.sql_queries if query.startswith("MERGE WITH")]  # type: ignore[attr-defined]
+    assert all("UPDATE SET *" not in query and "INSERT *" not in query for query in merges)
+    assert all("`cites_in_set`" not in query and "`cited_paper_ids`" not in query for query in merges)
 
 
 def test_missing_download_fails_run_and_can_be_retried(store: DeltaPaperStore) -> None:
@@ -347,12 +360,12 @@ def test_html_bibliography_survives_storage_and_scoped_read(store: DeltaPaperSto
     paper, enrichment = store.load_run_dataset(result.run_id)[0]
     assert enrichment.citation_source == "arxiv_html"
     assert enrichment.citation_status == "ok"
-    assert enrichment.cites_in_set == []
+    assert not {"referenced_arxiv_ids", "cites_in_set", "cited_by_in_set"} & enrichment.model_dump().keys()
     assert enrichment.bibliography is not None
     assert len(enrichment.bibliography) == 5
     assert enrichment.bibliography[1].target_id == "doi:10.1000/abc"
     assert enrichment.bibliography[2].match_method == "unresolved"
-    assert paper.cited_paper_ids == ["2402.00002", "hep-th/9901001"]
+    assert "cited_paper_ids" not in paper.model_dump()
     assert "bibliography ARRAY<STRUCT<" in store.spark.schemas[store.full_enrichment_table_name]  # type: ignore[attr-defined]
     assert store.load_run(result.run_id).enrichment_count == 1
     store.spark.tables[store.full_enrichment_table_name][0]["bibliography"] = None  # type: ignore[attr-defined]

@@ -1,4 +1,4 @@
-"""Verified bibliographic references and directed citation links."""
+"""Retrieve verified bibliographic references from Semantic Scholar."""
 
 import hashlib
 import json
@@ -100,11 +100,7 @@ class BatchCitationProviderProtocol(CitationProviderProtocol, Protocol):
 
 
 class SemanticScholarCitationResolver:
-    """Fetch references with pacing, bounded retries and optional API-key authentication.
-
-    Incoming links inside a run are derived by reversing verified outgoing links.
-    This avoids fetching potentially huge lists of citations for every paper.
-    """
+    """Fetch references with pacing, bounded retries and optional API-key authentication."""
 
     def __init__(
         self,
@@ -196,23 +192,10 @@ class SemanticScholarCitationResolver:
         logger.warning("{}; citation data is unavailable, not an empty bibliography", message)
         return CitationLookup(status=status, error=message)
 
-    @staticmethod
-    def _reference_ids(papers: list[_ScholarPaper | None], known_ids: dict[str, str], own_id: str) -> set[str]:
-        """Match a reference by arXiv ID or by a provider ID resolved for this batch."""
-        result: set[str] = set()
-        for paper in papers:
-            if paper is None:
-                continue
-            arxiv_id = paper.external_ids.arxiv if paper.external_ids else None
-            matched = canonical_arxiv_id(arxiv_id) if arxiv_id else known_ids.get(paper.paper_id or "")
-            if matched and matched != own_id:
-                result.add(matched)
-        return result
-
     def fetch_batch(self, paper_ids: list[str]) -> dict[str, CitationLookup]:
         """Keep the original bulk arXiv interface; collect all reference identities and metadata."""
         clean_ids = list(dict.fromkeys(canonical_arxiv_id(pid) for pid in paper_ids))
-        return self._fetch_identifiers({pid: f"ARXIV:{pid}" for pid in clean_ids}, set(clean_ids))
+        return self._fetch_identifiers({pid: f"ARXIV:{pid}" for pid in clean_ids})
 
     def fetch_papers(self, papers: list[Paper]) -> dict[str, CitationLookup]:
         """Batch papers from arXiv or other repositories using DOI, PMID or paper URL."""
@@ -221,18 +204,16 @@ class SemanticScholarCitationResolver:
         if len({paper.paper_id for paper in papers}) != len(papers):
             raise ValueError("Scholar batch requires unique paper_id values")
         identifiers: dict[str, str] = {}
-        arxiv_ids: set[str] = set()
         for paper in papers:
             if paper.source == "arxiv":
                 identifiers[paper.paper_id] = f"ARXIV:{canonical_arxiv_id(paper.paper_id)}"
-                arxiv_ids.add(paper.paper_id)
             elif paper.doi:
                 identifiers[paper.paper_id] = f"DOI:{normalize_doi(paper.doi)}"
             elif paper.source == "pubmed" and paper.paper_id.isdigit():
                 identifiers[paper.paper_id] = f"PMID:{paper.paper_id}"
             else:
                 identifiers[paper.paper_id] = f"URL:{paper.html_url}"
-        return self._fetch_identifiers(identifiers, arxiv_ids)
+        return self._fetch_identifiers(identifiers)
 
     @staticmethod
     def _bibliography(
@@ -280,7 +261,7 @@ class SemanticScholarCitationResolver:
             entries.setdefault(target, entry)
         return list(entries.values())
 
-    def _fetch_identifiers(self, identifiers: dict[str, str], arxiv_ids: set[str]) -> dict[str, CitationLookup]:
+    def _fetch_identifiers(self, identifiers: dict[str, str]) -> dict[str, CitationLookup]:
         clean_ids = list(identifiers)
         self._retry_wait_remaining = self.retry_wait_budget
         if not self.enabled:
@@ -314,7 +295,6 @@ class SemanticScholarCitationResolver:
                 else:
                     entries[pid] = item
 
-        known_ids = {item.paper_id: pid for pid, item in entries.items() if item.paper_id and pid in arxiv_ids}
         for pid, item in entries.items():
             inline_references = list(item.references or [])
             references = list(inline_references)
@@ -349,8 +329,8 @@ class SemanticScholarCitationResolver:
                         blocked = self._failure(exc)
                         lookup.status = "partial"
                         lookup.error = blocked.error
-            lookup.references = self._reference_ids(references, known_ids, pid if pid in arxiv_ids else "")
             lookup.bibliography = self._bibliography(references, item, pid)
+            lookup.references = {identifier for reference in lookup.bibliography for identifier in reference.arxiv_ids}
             if not references:
                 lookup.status = "partial"
                 lookup.error = (
@@ -377,30 +357,21 @@ class SemanticScholarCitationResolver:
         return results
 
     def fetch_references_and_citations(self, paper_id: str) -> CitationLookup:
-        """Fetch a single paper; incoming in-set links are derived by the graph resolver."""
+        """Fetch the bibliography of a single arXiv paper."""
         return self.fetch_batch([paper_id])[canonical_arxiv_id(paper_id)]
 
 
-def resolve_mutual_citations(
+def fetch_bibliographies(
     papers: list[Paper],
     citation_provider: CitationProviderProtocol | None = None,
-    known_paper_ids: set[str] | None = None,
-    lookup_outcomes: dict[str, CitationLookup] | None = None,
-) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]]]:
-    """Resolve directed links using provider evidence, never abstract/title mentions.
-
-    Scope defaults to the current run. Extra known IDs extend matching, not
-    retrieval: historical papers are not loaded or updated automatically.
-    """
-    from autographrs.enrichment.arxiv_html import normalize_doi
+) -> dict[str, CitationLookup]:
+    """Fetch provider outcomes without deriving relationships between selected papers."""
     from autographrs.enrichment.citation_service import CitationService
 
-    provider = citation_provider or CitationService()
-    ids = {p.paper_id for p in papers}
+    ids = {paper.paper_id for paper in papers}
     if len(ids) != len(papers):
-        raise ValueError("Citation resolution requires unique paper_id values within a run")
-    arxiv_ids = {paper.paper_id for paper in papers if paper.source == "arxiv"}
-    dataset_ids = ids | (known_paper_ids or set())
+        raise ValueError("Bibliography retrieval requires unique paper_id values within a run")
+    provider = citation_provider or CitationService()
     if isinstance(provider, PaperBatchCitationProviderProtocol):
         lookups = provider.fetch_papers(papers)
     elif isinstance(provider, PaperCitationProviderProtocol):
@@ -408,50 +379,9 @@ def resolve_mutual_citations(
     elif any(paper.source != "arxiv" for paper in papers):
         raise ValueError("This citation provider only supports arXiv IDs; use a paper-aware provider for other sources")
     elif isinstance(provider, BatchCitationProviderProtocol):
-        lookups = provider.fetch_batch([p.paper_id for p in papers])
+        lookups = provider.fetch_batch([paper.paper_id for paper in papers])
     else:
-        lookups = {p.paper_id: provider.fetch_references_and_citations(p.paper_id) for p in papers}
-    if lookup_outcomes is not None:
-        lookup_outcomes.update(lookups)
-    refs = {
-        pid: {canonical_arxiv_id(ref) for ref in lookups[pid].references} - ({pid} if pid in arxiv_ids else set())
-        for pid in ids
-    }
-    for pid, lookup in lookups.items():
-        for citing in lookup.citations:
-            src = canonical_arxiv_id(citing)
-            if src in refs and src != pid:
-                refs[src].add(pid)
-    outgoing = {pid: refs[pid] & (arxiv_ids | (known_paper_ids or set())) for pid in ids}
-    doi_ids: dict[str, set[str]] = {}
-    provider_ids: dict[str, set[str]] = {}
-    for candidate in papers:
-        if candidate.doi:
-            doi_ids.setdefault(normalize_doi(candidate.doi), set()).add(candidate.paper_id)
-        if provider_id := lookups[candidate.paper_id].provider_paper_id:
-            provider_ids.setdefault(provider_id, set()).add(candidate.paper_id)
-        for provider_id in lookups[candidate.paper_id].provider_identities:
-            provider_ids.setdefault(provider_id, set()).add(candidate.paper_id)
-    for paper in papers:
-        for reference in lookups[paper.paper_id].bibliography:
-            matches: set[str] = set()
-            if reference.match_method == "doi" and len(reference.dois) == 1:
-                matches = doi_ids.get(reference.dois[0], set())
-            elif reference.match_method in {"openalex_id", "scholar_id"} and reference.provider_id:
-                matches = provider_ids.get(reference.provider_id, set())
-                if not matches and len(reference.dois) == 1:
-                    matches = doi_ids.get(reference.dois[0], set())
-            if len(matches) == 1 and paper.paper_id not in matches:
-                outgoing[paper.paper_id].update(matches)
-    incoming = {pid: set() for pid in ids}
-    for src, destinations in outgoing.items():
-        for dst in destinations:
-            if dst in incoming:
-                incoming[dst].add(src)
-    for pid, lookup in lookups.items():
-        incoming[pid].update({canonical_arxiv_id(src) for src in lookup.citations} & dataset_ids - {pid})
-    return (
-        {pid: sorted(values) for pid, values in refs.items()},
-        {pid: sorted(values) for pid, values in outgoing.items()},
-        {pid: sorted(values) for pid, values in incoming.items()},
-    )
+        lookups = {paper.paper_id: provider.fetch_references_and_citations(paper.paper_id) for paper in papers}
+    if set(lookups) != ids:
+        raise ValueError("Bibliography provider must return exactly one outcome per paper")
+    return lookups

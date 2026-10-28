@@ -1,4 +1,4 @@
-"""Unit tests for LLM tool-calling enrichment and mutual citation tracking."""
+"""Unit tests for LLM enrichment and bibliography retrieval."""
 
 import json
 from datetime import UTC, datetime
@@ -6,10 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from test_ingestion import FakeArxivClient, FakeSparkSession, _fake_arxiv_result
 
 from autographrs.config import ProjectConfig
-from autographrs.enrichment.citations import CitationLookup, resolve_mutual_citations
+from autographrs.enrichment.citations import CitationLookup, fetch_bibliographies
 from autographrs.enrichment.tagger import (
     TOOL_NAME,
     PaperTagger,
@@ -79,7 +80,6 @@ def _make_paper(
     paper_id: str,
     title: str,
     abstract: str = "An abstract about large language models.",
-    cited_ids: list[str] | None = None,
 ) -> Paper:
     now = datetime(2024, 6, 1, tzinfo=UTC)
     return Paper(
@@ -93,7 +93,6 @@ def _make_paper(
         primary_category="cs.CL",
         html_url=f"http://arxiv.org/abs/{paper_id}",
         pdf_url=f"https://arxiv.org/pdf/{paper_id}.pdf",
-        cited_paper_ids=cited_ids or [],
     )
 
 
@@ -182,42 +181,11 @@ def test_paper_tagger_tool_calling_and_fallback() -> None:
         assert fb_summary == paper.abstract
 
 
-def test_resolve_mutual_citations_tracks_bidirectional_links() -> None:
-    """Mutual citations between papers in the batch are symmetrically resolved (cites_in_set / cited_by_in_set)."""
-    p_a = _make_paper("2401.00001", "Paper A: Foundation of Graph RAG", cited_ids=["2301.99999"])
-    p_b = _make_paper(
-        "2402.00002",
-        "Paper B: Advances in Graph RAG",
-        abstract="Building directly on Paper A: Foundation of Graph RAG, we improve retrieval.",
-    )
-    p_c = _make_paper("2403.00003", "Paper C: Multi-Hop Reasoning over Graphs")
-
-    # Semantic Scholar reports:
-    # - Paper C references Paper B ("2402.00002")
-    # - Paper A is cited by Paper C ("2403.00003") -> implies C also cites A
-    provider = FakeCitationProvider(
-        {
-            "2401.00001": (set(), {"2403.00003"}),
-            "2402.00002": (set(), set()),
-            "2403.00003": ({"2402.00002"}, set()),
-        }
-    )
-
-    all_refs, cites_in_set, cited_by_in_set = resolve_mutual_citations(
-        [p_a, p_b, p_c],
-        citation_provider=provider,
-    )
-
-    # Abstract mentions are not bibliographic evidence. Only provider links are accepted.
-    assert all_refs["2401.00001"] == []
-    assert cites_in_set["2401.00001"] == []
-    assert cited_by_in_set["2401.00001"] == ["2403.00003"]
-
-    assert cites_in_set["2402.00002"] == []
-    assert cited_by_in_set["2402.00002"] == ["2403.00003"]
-
-    assert cites_in_set["2403.00003"] == ["2401.00001", "2402.00002"]
-    assert cited_by_in_set["2403.00003"] == []
+def test_bibliography_retrieval_rejects_duplicate_ids() -> None:
+    """Reject ambiguous source-local keys before calling a provider."""
+    paper = _make_paper("2401.00001", "Paper A")
+    with pytest.raises(ValueError, match="unique paper_id"):
+        fetch_bibliographies([paper, paper], FakeCitationProvider({}))
 
 
 def test_run_ingestion_with_enrichment_saves_to_delta(tmp_path: Path) -> None:
@@ -258,12 +226,11 @@ def test_run_ingestion_with_enrichment_saves_to_delta(tmp_path: Path) -> None:
     enrich_rows = fake_spark.tables["llmops_dev.riccardo_tambone.paper_enrichment"]
     assert len(enrich_rows) == 2
     row_p1 = next(r for r in enrich_rows if r["paper_id"] == "2401.00001")
-    row_p2 = next(r for r in enrich_rows if r["paper_id"] == "2402.00002")
 
     assert row_p1["title"] == "Graph RAG for Scientific Literature"
     assert row_p1["authors"] == ["Alice Smith", "Bob Jones"]
-    assert row_p1["cited_by_in_set"] == ["2402.00002"]
-    assert row_p2["cites_in_set"] == ["2401.00001"]
+    assert all(not {"referenced_arxiv_ids", "cites_in_set", "cited_by_in_set"} & row.keys() for row in enrich_rows)
+    assert all("cited_paper_ids" not in row for row in fake_spark.tables[store.full_table_name])
     assert row_p1["tags"] == ["llm-agents", "citation-graph"]
     assert row_p1["arxiv_category"] == ["computation-and-language", "artificial-intelligence"]
     assert row_p1["citation_status"] == "ok"
@@ -274,7 +241,7 @@ def test_run_ingestion_with_enrichment_saves_to_delta(tmp_path: Path) -> None:
 def test_failed_citation_lookup_is_persisted_as_unavailable() -> None:
     """An unavailable provider must not appear as a successfully empty bibliography."""
     cfg = ProjectConfig.from_yaml(str(PROJECT_CONFIG), "dev")
-    paper = _make_paper("2401.00001", "Paper A", cited_ids=["2402.00002"])
+    paper = _make_paper("2401.00001", "Paper A", abstract="Mentions 2402.00002.")
     provider = FakeCitationProvider({})
     tagger = PaperTagger(config=cfg, client=FakeOpenAIClient(FakeChatCompletions(["rag"], "Summary.")))
     with (
@@ -290,5 +257,4 @@ def test_failed_citation_lookup_is_persisted_as_unavailable() -> None:
     assert row["citation_status"] == "rate_limited"
     assert row["citation_error"] == "Semantic Scholar HTTP 429"
     assert row["citation_fetched_at"] is not None
-    assert row["referenced_arxiv_ids"] == []
-    assert row["cites_in_set"] == []
+    assert row["bibliography"] == []

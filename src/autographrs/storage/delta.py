@@ -9,7 +9,7 @@ from uuid import uuid4
 from loguru import logger
 
 from autographrs.config import ProjectConfig
-from autographrs.enrichment.citations import CitationLookup, CitationProviderProtocol, resolve_mutual_citations
+from autographrs.enrichment.citations import CitationProviderProtocol, fetch_bibliographies
 from autographrs.enrichment.tagger import PaperTagger
 from autographrs.models import IngestionResult, Paper, PaperEnrichment, PipelineRun, SearchRequest, build_run_id
 from autographrs.sources.base import PaperSource
@@ -34,7 +34,6 @@ PAPERS_TABLE_DDL_SCHEMA = (
     "html_url STRING, "
     "pdf_url STRING, "
     "pdf_volume_path STRING, "
-    "cited_paper_ids ARRAY<STRING>, "
     "search_topic STRING, "
     "ranking_criteria STRING, "
     "criteria_date STRING, "
@@ -50,13 +49,10 @@ PAPER_ENRICHMENT_DDL_SCHEMA = (
     "tags ARRAY<STRING>, "
     "arxiv_category ARRAY<STRING>, "
     "summary STRING, "
-    "referenced_arxiv_ids ARRAY<STRING>, "
     "bibliography ARRAY<STRUCT<reference_id: STRING, position: INT, label: STRING, text: STRING, "
     "urls: ARRAY<STRING>, arxiv_ids: ARRAY<STRING>, dois: ARRAY<STRING>, target_id: STRING, "
     "match_method: STRING, evidence_url: STRING, provider_id: STRING, title: STRING, "
     "authors: ARRAY<STRING>, publication_year: INT>>, "
-    "cites_in_set ARRAY<STRING>, "
-    "cited_by_in_set ARRAY<STRING>, "
     "citation_status STRING, "
     "citation_error STRING, "
     "citation_source STRING, "
@@ -127,7 +123,6 @@ def papers_to_records(
                 "html_url": paper.html_url,
                 "pdf_url": paper.pdf_url,
                 "pdf_volume_path": paper.pdf_volume_path,
-                "cited_paper_ids": list(paper.cited_paper_ids),
                 "search_topic": request.topic,
                 "ranking_criteria": str(request.ranking_criteria),
                 "criteria_date": criteria_date,
@@ -149,12 +144,9 @@ def enrichments_to_records(enrichments: list[PaperEnrichment]) -> list[dict[str,
             "tags": list(item.tags),
             "arxiv_category": list(item.arxiv_category),
             "summary": item.summary,
-            "referenced_arxiv_ids": list(item.referenced_arxiv_ids),
             "bibliography": (
                 [reference.model_dump() for reference in item.bibliography] if item.bibliography is not None else None
             ),
-            "cites_in_set": list(item.cites_in_set),
-            "cited_by_in_set": list(item.cited_by_in_set),
             "citation_status": item.citation_status,
             "citation_error": item.citation_error,
             "citation_source": item.citation_source,
@@ -274,12 +266,16 @@ class DeltaPaperStore:
         frame = self.spark.createDataFrame(records, schema=schema)
         frame.createOrReplaceTempView(view)
         condition = " AND ".join(f"target.`{key}` = incoming.`{key}`" for key in keys)
+        columns = list(records[0])
+        assignments = ", ".join(f"`{column}` = incoming.`{column}`" for column in columns)
+        insert_columns = ", ".join(f"`{column}`" for column in columns)
+        insert_values = ", ".join(f"incoming.`{column}`" for column in columns)
         try:
             self.spark.sql(
                 f"MERGE WITH SCHEMA EVOLUTION INTO {_quoted_name(table)} AS target "
                 f"USING `{view}` AS incoming ON {condition} "
-                f"WHEN MATCHED AND ({matched_condition}) THEN UPDATE SET * "
-                "WHEN NOT MATCHED THEN INSERT *"
+                f"WHEN MATCHED AND ({matched_condition}) THEN UPDATE SET {assignments} "
+                f"WHEN NOT MATCHED THEN INSERT ({insert_columns}) VALUES ({insert_values})"
             )
         finally:
             self.spark.catalog.dropTempView(view)
@@ -470,7 +466,7 @@ class DeltaPaperStore:
         self,
         enrichments: list[PaperEnrichment],
     ) -> int:
-        """Persist paper enrichment records (tags, summary, mutual citations) into Delta.
+        """Persist paper enrichment records (tags, summary, bibliography) into Delta.
 
         Args:
             enrichments: Enrichment records to write
@@ -502,11 +498,8 @@ def enrich_papers(
     config: ProjectConfig,
     tagger: PaperTagger | None = None,
     citation_provider: CitationProviderProtocol | None = None,
-    known_paper_ids: set[str] | None = None,
 ) -> tuple[list[Paper], list[PaperEnrichment]]:
-    """Run LLM tool-calling tag/summary extraction and mutual citation resolution for `papers`.
-
-    Also updates each `Paper.cited_paper_ids` with the resolved `referenced_arxiv_ids`.
+    """Run LLM tag/summary extraction and retrieve bibliographies for `papers`.
 
     Args:
         papers: Papers ingested in the current run
@@ -514,7 +507,6 @@ def enrich_papers(
         config: Target environment configuration
         tagger: Optional `PaperTagger` instance
         citation_provider: Optional `CitationProviderProtocol` instance
-        known_paper_ids: Optional additional paper IDs known in the catalog
 
     Returns:
         Tuple `(updated_papers, enrichments)`
@@ -524,23 +516,13 @@ def enrich_papers(
         return [], []
 
     active_tagger = tagger or PaperTagger(config=config)
-    outcomes: dict[str, CitationLookup] = {}
-    all_refs_map, cites_in_set_map, cited_by_in_set_map = resolve_mutual_citations(
-        papers=papers,
-        citation_provider=citation_provider,
-        known_paper_ids=known_paper_ids,
-        lookup_outcomes=outcomes,
-    )
+    outcomes = fetch_bibliographies(papers, citation_provider)
 
     updated_papers: list[Paper] = []
     enrichments: list[PaperEnrichment] = []
     for paper in papers:
         llm_tags, arxiv_cats, summary = active_tagger.extract_tags_and_summary(paper)
-        all_refs = all_refs_map.get(paper.paper_id, [])
-        cites_in_set = cites_in_set_map.get(paper.paper_id, [])
-        cited_by_in_set = cited_by_in_set_map.get(paper.paper_id, [])
-
-        updated_papers.append(paper.model_copy(update={"cited_paper_ids": all_refs}))
+        updated_papers.append(paper)
         enrichments.append(
             PaperEnrichment(
                 paper_id=paper.paper_id,
@@ -551,10 +533,7 @@ def enrich_papers(
                 tags=llm_tags,
                 arxiv_category=arxiv_cats,
                 summary=summary,
-                referenced_arxiv_ids=all_refs,
                 bibliography=outcomes[paper.paper_id].bibliography,
-                cites_in_set=cites_in_set,
-                cited_by_in_set=cited_by_in_set,
                 citation_status=outcomes[paper.paper_id].status,
                 citation_error=outcomes[paper.paper_id].error,
                 citation_source=outcomes[paper.paper_id].source,
@@ -587,7 +566,7 @@ def ingest_and_store_papers(
     citation_provider: CitationProviderProtocol | None = None,
     run_id: str | None = None,
 ) -> IngestionResult:
-    """Search papers, download PDFs, enrich with LLM tags & mutual citations, and store in Delta.
+    """Search papers, download PDFs, enrich with LLM tags and bibliography, and store in Delta.
 
     Args:
         request: Topic, ranking criterion, optional criterion date, and top-N limit
@@ -595,7 +574,7 @@ def ingest_and_store_papers(
         source: Bibliographic source provider (e.g. `ArxivSource`)
         store: Optional pre-configured `DeltaPaperStore`
         download_pdfs: Whether to download PDF files into the Unity Catalog Volume
-        enrich: Whether to run LLM tool-calling enrichment and mutual citation resolution
+        enrich: Whether to run LLM tool-calling enrichment and bibliography retrieval
         tagger: Optional pre-configured `PaperTagger`
         citation_provider: Optional pre-configured `CitationProviderProtocol`
         run_id: Optional explicit run identifier
