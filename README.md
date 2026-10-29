@@ -180,7 +180,7 @@ Il provider HTML, arXiv-only, viene rifiutato esplicitamente su paper di altre f
 ## Dati
 
 Ogni ricerca produce un **dataset autonomo identificato da `run_id`**. AutoGraphRS salva
-tre tabelle Delta di acquisizione/enrichment e tre tabelle del grafo nello schema Unity
+tre tabelle Delta di acquisizione/enrichment, due per gli abstract bibliografici e tre del grafo nello schema Unity
 Catalog dell'ambiente selezionato e i PDF nel Volume
 `arxiv_files`. In dev le tabelle sono in `llmops_dev.riccardo_tambone`; acc e prd usano
 i rispettivi cataloghi configurati in [project_config.yml](project_config.yml).
@@ -436,9 +436,9 @@ e `SHARES_CATEGORY` non sono ancora costruiti; gli autori strutturati restano ne
 
 | Tabella | Chiave logica | Contenuto |
 |---|---|---|
-| `graph_nodes` | `(run_id, graph_build_id, node_id)` | Tipo `selected`/`external`/`unresolved`, stato identita', alias, titolo, autori, URL; abstract, summary, tag, categorie e percorso PDF per i selezionati |
+| `graph_nodes` | `(run_id, graph_build_id, node_id)` | Tipo `selected`/`external`/`unresolved`, stato identita', alias, titolo, autori, URL, abstract e `text_variant`; summary, tag, categorie e percorso PDF per i selezionati |
 | `graph_edges` | `(run_id, graph_build_id, edge_id)` | `source_id`, `target_id`, relazione `CITES`, array di evidenze |
-| `graph_builds` | `(run_id, graph_build_id)` | Versione builder, stato `RUNNING`/`COMPLETED`/`FAILED`, conteggi, warning, errore e timestamp |
+| `graph_builds` | `(run_id, graph_build_id)` | Versione builder, `bibliography_snapshot_id`, stato `RUNNING`/`COMPLETED`/`FAILED`, conteggi, warning, errore e timestamp |
 
 In dev sono nello schema `llmops_dev.riccardo_tambone`.
 Ogni esecuzione genera un nuovo `graph_build_id`: non modifica ingestion/enrichment o build
@@ -468,19 +468,139 @@ La chiave interna del bundle rimane `ingest_papers` per aggiornare la risorsa es
 senza crearne una nuova. Il job mantiene ambiente/versioni e aggiunge la dipendenza:
 
 ```text
-ingest_papers -> build_graph
+ingest_papers -> enrich_bibliography -> build_graph
 ```
 
 Il task ingestion pubblica il `run_id` effettivo con `dbutils.jobs.taskValues.set`;
-`build_graph` lo riceve tramite `{{tasks.ingest_papers.values.run_id}}`, non dal parametro
-job vuoto usato per avviare una nuova ricerca. Il secondo task pubblica `graph_build_id`
-per futuri consumer.
+entrambi i task successivi lo ricevono tramite `{{tasks.ingest_papers.values.run_id}}`,
+non dal parametro job vuoto usato per avviare una nuova ricerca.
+`enrich_bibliography` pubblica `bibliography_snapshot_id`, passato esplicitamente a
+`build_graph`; quest'ultimo pubblica `graph_build_id` per futuri consumer.
 
 Se fallisce solo il grafo, usare **Repair run** sul task `build_graph`, evitando di
 rieseguire ingestion su un `run_id` gia' completato. In alternativa eseguire il notebook
 [build_graph.py](resources/deployment_notebooks/build_graph.py) con `env` e `run_id` espliciti.
+Passare anche `bibliography_snapshot_id` per includere gli abstract esterni; lasciarlo vuoto
+costruisce il grafo dalle sole bibliografie originali, senza nuove richieste di rete.
 La run di acquisizione resta completata anche se il grafo fallisce; lo stato del job
 Databricks e `graph_builds` segnalano il fallimento dello step.
+
+## Evoluzione concordata: embedding, agente e MCP (pianificata)
+
+Embedding, agente e MCP sono funzionalita' future. Il recupero degli abstract esterni e
+la classificazione del testo sono implementati come descritto sotto. La pipeline batch
+e il graph builder rimangono deterministici; un agente separato esplorera' la raccolta.
+Obsidian restera' un output autonomo, utilizzabile senza agente o server MCP.
+
+### Embedding e ricerca semantica
+
+- Prima versione: embedding di **titolo + abstract**, non dei PDF integrali.
+- Indice previsto su **Lakebase + pgvector**, previa verifica di disponibilita',
+  autorizzazioni e configurazione nel workspace; nessun cambio delle versioni del corso.
+- Registrare identita' del lavoro, run/snapshot, modello/versione, dimensione del vettore,
+  hash del testo e provenienza. Ricalcolare quando cambia testo o modello; non confrontare
+  vettori di modelli diversi e non mescolare snapshot senza una scelta esplicita.
+- Ricerca semantica, raccomandazioni e recupero di evidenze per RAG.
+- Archi opzionali `SIMILAR_TO`, distinti da `CITES`, basati su vicini top-k e soglia
+  calibrati su esempi reali; score e versione delle regole conservati.
+  La similarita' non prova una citazione o l'identita' di due lavori.
+
+### Abstract dei citati esterni
+
+Implementato nel task [enrich_bibliography.py](resources/deployment_notebooks/enrich_bibliography.py),
+con resolver [abstracts.py](src/autographrs/enrichment/abstracts.py) e persistenza
+[bibliography.py](src/autographrs/enrichment/bibliography.py).
+L'ingestion continua a produrre la bibliografia originale, senza sovrascriverla.
+Lo step separato:
+
+1. Riconcilia gli ID con le stesse regole conservative del grafo; ogni nodo esterno
+   viene interrogato una volta per provider nella stessa esecuzione. Riferimenti a paper
+   selezionati usano gia' il loro abstract originale e non richiedono altre chiamate.
+2. Scholar: batch fino a 100 lavori con `paperId,title,abstract`, identificati per
+   ID Scholar, DOI o ID arXiv. Nessuna bibliografia aggiuntiva richiesta.
+3. Per abstract mancanti: OpenAlex in batch fino a 100 ID OpenAlex o DOI esatti.
+   `abstract_inverted_index` viene ricostruito per posizione, rifiutando indici malformati.
+   Senza un ID OpenAlex/DOI non viene fatta ricerca per titolo; non esiste un terzo
+   fallback diretto all'API arXiv in questa iterazione.
+4. Riusa pacing, autenticazione e retry dei provider. Scholar condivide il budget retry
+   di 90 secondi tra i batch; dopo esaurimento si saltano i batch restanti.
+   OpenAlex interrompe i batch della stessa famiglia di ID dopo un errore esaurito.
+   Non e' un limite rigido alla durata totale del task: pacing/timeout dipendono dai lavori.
+5. Salva uno snapshot immutabile con titolo, abstract, provider, URL, timestamp ed esiti
+   separati di ogni tentativo provider. Non modifica snapshot di ingestion o grafi precedenti.
+
+| Tabella | Chiave | Contenuto |
+|---|---|---|
+| `bibliography_metadata` | `(run_id, snapshot_id, node_id)` | Titolo, abstract, `text_variant`, stato, provenienza e diagnostica |
+| `bibliography_snapshots` | `(run_id, snapshot_id)` | Versione identita', stato pubblicazione, conteggi, warning, errore e timestamp |
+
+`text_variant` e' **`title_abstract`** se titolo e abstract sono disponibili,
+**`title_only`** se e' disponibile soltanto il titolo, **null** senza un titolo utilizzabile.
+Un identificatore o una citazione grezza non viene spacciata per titolo.
+Le etichette sono salvate nei metadati e sui nodi del grafo, anche selezionati;
+**nessun embedding viene ancora generato**.
+
+Stati: `ok`, `missing` (abstract non restituito), `unresolved` (identita' incerta),
+`rate_limited`, `error`. Errori provider possono produrre snapshot completati con warning
+e dati title-only, senza nascondere l'errore negli `attempts`. Errori di scrittura/consistenza
+producono snapshot `FAILED`, non leggibili. Ogni riesecuzione crea un nuovo snapshot;
+Repair del task puo' ripetere chiamate ai provider, senza danneggiare lo storico.
+
+```python
+from autographrs.enrichment.bibliography import BibliographyStore
+from autographrs.graph import GraphStore
+
+metadata_store = BibliographyStore(config)
+snapshot = metadata_store.enrich_bibliography(run_id)
+metadata = metadata_store.load_metadata(run_id, snapshot.snapshot_id)
+build = GraphStore(config).build_graph(run_id, bibliography_snapshot_id=snapshot.snapshot_id)
+```
+
+Il builder legge lo snapshot indicato, ne verifica versione, conteggi e corrispondenza
+dei nodi, e registra `bibliography_snapshot_id` nella build. Recuperare la provenienza
+con una join su run, snapshot e node_id, mai su un generico titolo.
+
+Questo arricchisce solo i citati a **un livello**, senza recuperarne automaticamente la
+bibliografia, scaricare PDF o eseguire sintesi LLM. I placeholder senza ID affidabile
+rimangono esclusi dai lookup automatici per titolo. Limiti di copertura, licenze e API
+rimangono applicabili; l'assenza dell'abstract non elimina il nodo o la citazione.
+Il builder consuma lo snapshot esterno esplicito, senza fare chiamate di rete.
+
+### Agente bibliografico con tool controllati
+
+Prima versione **read-only**, per domande sulla raccolta con risposte ancorate a evidenze:
+
+| Tool proposto | Responsabilita' |
+|---|---|
+| `search_collection` | Ricerca semantica entro gli snapshot autorizzati |
+| `get_paper` | Metadati e abstract del lavoro |
+| `get_bibliography` | Bibliografia acquisita e provenienza |
+| `get_neighbors` | Vicini del grafo, con tipo relazione e profondita' limitata |
+| `search_sources` | Successiva estensione: candidati da repository esterni |
+| `propose_expansion` | Successiva estensione: proposta di acquisizione, non esecuzione automatica |
+
+L'agente sceglie sequenza e strumenti, non esegue Python/SQL arbitrario. Il codice impone
+schemi tipizzati, autorizzazioni per run/build, limiti a risultati/chiamate/profondita',
+timeout e budget. I contenuti dei paper sono dati non fidati, mai istruzioni per i tool.
+Tool di scrittura separati, con conferma prima di acquisizioni costose o nuove run;
+nessuna autorizzazione affidata al solo prompt.
+
+### MCP e LLMOps
+
+Un futuro server **MCP** esporra' gli stessi servizi applicativi a client compatibili.
+MCP e' il protocollo d'accesso ai tool, non l'agente e non il motore vettoriale.
+I task batch continuano a usare Python direttamente: nessun obbligo di passare via MCP.
+Il server richiede deployment e autenticazione adatti a un servizio raggiungibile;
+un notebook che termina con il job non e' un endpoint persistente.
+
+MLflow dovra' tracciare prompt/modelli, tool call, evidenze, errori, latenza e token/costi
+senza segreti. Valutare retrieval (es. Recall@k), pertinenza dei vicini, correttezza delle
+risposte/citazioni, rispetto dei permessi e dei budget, con dataset di test versionato.
+
+Metadati esterni implementati; ordine restante: completare grafo ed export, poi embedding e retrieval,
+tool tipizzati, agente read-only, esposizione MCP, infine espansione con approvazione.
+L'assistente combina ricerca vettoriale e navigazione del grafo, senza rendere agentica
+la costruzione delle relazioni.
 
 ### Run snapshots, retries and reads
 
