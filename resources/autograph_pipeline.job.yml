@@ -1,18 +1,18 @@
-# Paper ingestion job: searches arXiv for a topic with configurable ranking criteria
+# Research pipeline: searches arXiv for topics with configurable ranking criteria
 # (relevance, submittedDate, lastUpdatedDate) and optional date filter, downloads PDFs
-# into the Unity Catalog Volume, and stores paper metadata in the `papers` Delta table.
+# into the Unity Catalog Volume, enriches metadata and builds a separate citation graph.
 # Job-level `parameters` expose editable fields directly in the Databricks Jobs UI.
 resources:
   jobs:
     ingest_papers:
-      name: job-ingest-papers
+      name: job-autograph-pipeline
       budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
       max_concurrent_runs: 1
       parameters:
         - name: env
           default: ${bundle.target}
         - name: topic
-          default: "large language models graph rag"
+          default: "neuroscience, peririnal cortex"
         - name: num_papers
           default: "10"
         - name: ranking_criteria
@@ -43,3 +43,12 @@ resources:
               criteria_date: "{{job.parameters.criteria_date}}"
               categories: "{{job.parameters.categories}}"
               run_id: "{{job.parameters.run_id}}"
+        - task_key: build_graph
+          depends_on:
+            - task_key: ingest_papers
+          environment_key: default
+          notebook_task:
+            notebook_path: deployment_notebooks/build_graph.py
+            base_parameters:
+              env: "{{job.parameters.env}}"
+              run_id: "{{tasks.ingest_papers.values.run_id}}"

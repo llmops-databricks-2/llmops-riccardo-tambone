@@ -158,7 +158,7 @@ autographrs/
 ├── enrichment/
 │   ├── llm.py               # Client AI Gateway (chat + embeddings) + definizione Tools
 │   ├── tagger.py            # Step deterministico con tool-calling per estrazione tag e summary
-│   ├── citations.py         # Contratti, relazioni interne; Scholar batch con retry e tutti i citati
+│   ├── citations.py         # Contratti e bibliografie; Scholar batch con retry e tutti i citati
 │   ├── citation_service.py  # Scholar primario, OpenAlex se nessun riferimento; diagnostica separata
 │   ├── arxiv_html.py        # Provider opzionale: bibliografia HTML ufficiale
 │   ├── openalex.py          # Fallback: riferimenti e metadati citati da OpenAlex
@@ -167,7 +167,10 @@ autographrs/
 │   ├── delta.py             # Lettura/scrittura Delta tables su Unity Catalog
 │   └── vector_db.py         # Gestione Lakebase Postgres + pgvector per embeddings
 ├── graph/
-│   └── builder.py           # (pianificato) Nodi/archi bibliografici e tematici, incluso SHARES_CATEGORY
+│   ├── models.py            # Nodi Paper, archi CITES con evidenze, build e registro
+│   ├── identity.py          # Alias esatti e quarantena delle componenti ambigue
+│   ├── builder.py           # Builder puro: selezionati, esterni e placeholder; archi CITES
+│   └── storage.py           # Snapshot Delta e pubblicazione indipendente dall'ingestion
 ├── export/
 │   └── obsidian.py          # (pianificato) Formatter Markdown, due vault con PDF e ZIP
 ├── ranking/
@@ -189,7 +192,7 @@ e `ranking/journals.py` potranno essere agganciati come step/tool aggiuntivi.
 | PDF dei paper | UC Volume `arxiv_files` | `<volume>/runs/<run_id>/pdfs/<arxiv_id>.pdf` |
 | Metadati paper | Delta table `papers` | `arxiv_id`, `title`, `authors`, `abstract`, `published`, `updated`, `categories`, `pdf_path`, `run_id` |
 | Arricchimento | Delta table `paper_enrichment` | `paper_id`, `title`, `authors`, `tags` LLM, `arxiv_category` umanizzate, `summary`, `run_id`, citazioni e stato lookup |
-| Nodi e Archi grafo (pianificati) | Delta tables `graph_nodes`, `graph_edges` | Archi: `SHARES_TAG`, `SHARES_CATEGORY`, `CITES`, `AUTHORS`, `SHARED_AUTHORS` |
+| Nodi e Archi grafo | Delta tables `graph_nodes`, `graph_edges`, registro `graph_builds` | Primo incremento: Paper + `CITES`; autori e archi tematici futuri |
 | Embeddings | Lakebase (`pgvector`) | Tabella `paper_embeddings` su `lb-llmops-riccardo-tambone` |
 | Vault Obsidian + ZIP (pianificati) | UC Volume `arxiv_files` | Due cartelle vault e archivio comune nel percorso isolato della run |
 
@@ -357,10 +360,20 @@ graph LR
   (30 con titolo); `2410.12096`, `2501.05032`, `2406.16167`, `2405.11357` vengono trovati
   tramite le location alternative ma al momento restituiscono zero riferimenti nell'indice.
 - Ingestion ed enrichment si fermano a `bibliography`: non calcolano relazioni.
-  Il futuro graph builder indipendente ricostruira' gli archi dalle bibliografie salvate,
+  Il graph builder indipendente ricostruisce gli archi dalle bibliografie salvate,
   inclusi i citati esterni. Le vecchie colonne `referenced_arxiv_ids`, `cites_in_set`,
   `cited_by_in_set` e `papers.cited_paper_ids` non vengono piu' prodotte o lette;
   eventuali colonne e valori storici Delta rimangono senza migrazione o backfill.
+- Primo incremento grafo delle citazioni: `graph/models.py`, `identity.py`, `builder.py`,
+  `storage.py`; input da `load_run_dataset(run_id)`, nessuna chiamata API/LLM.
+  Nodi selected/external/unresolved; alias esatti con riconciliazione transitiva e
+  quarantena delle componenti con ID conflittuali o piu' selezionati. Un arco diretto
+  CITES per coppia con tutte le evidenze; nessuna fusione per titolo e nessuna espansione.
+  Build deterministiche in memoria; snapshot Delta isolati per `(run_id, graph_build_id)`.
+  Registro `graph_builds` con versione regole, conteggi, stato e diagnostica; pubblicazione
+  dopo rilettura e verifica, senza modificare `pipeline_runs` o i dati acquisiti.
+  Task `build_graph` dipendente da `ingest_papers`, run_id passato come task value effettivo.
+  Repair del solo grafo possibile senza ripetere ingestion. Autori e tematico ancora futuri.
 - I tre provider sono anche selezionabili esplicitamente in Python.
   HTML non e' un fallback automatico. Nessun servizio PDF o nuova dipendenza.
 - Metadata e riferimenti sono snapshot della run; nessuna espansione ricorsiva, download
@@ -379,13 +392,14 @@ graph LR
 
 ## 6. Asset Bundle: nuove risorse (senza toccare l'esistente)
 
-Risorsa attuale `resources/ingest_papers.job.yml`:
+Risorsa attuale `resources/autograph_pipeline.job.yml`:
 
-- Job `job-ingest-papers`, serverless,
+- Job `job-autograph-pipeline`, serverless, chiave bundle `ingest_papers` invariata,
   `environment_version: "5"` (coerente con `pyproject.toml`), dipendenza dal wheel
   `../dist/*.whl`, `budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"`.
 - Task notebook `resources/deployment_notebooks/ingest_papers.py` con parametri anche nella GUI Jobs:
-  - `topic`: argomento di ricerca
+  - `topic`: concetti separati da virgola, tradotti dal provider arXiv in frasi `all:"..."` con AND;
+    senza virgole conserva la query preesistente. Liste vuote/malformate o con virgolette rifiutate.
   - `num_papers`: numero di paper (default `10`)
   - `ranking_criteria`: `relevance` (default) | `lastUpdatedDate` | `submittedDate`
   - `criteria_date`: data opzionale (es. `YYYY-MM-DD` o range) quando si usa `lastUpdatedDate` / `submittedDate`
@@ -400,9 +414,9 @@ Risorsa attuale `resources/ingest_papers.job.yml`:
 | --- | --- | --- | --- |
 | **0 — Setup infrastruttura** | Creare volume UC `arxiv_files`; configurare database su Lakebase e abilitare estensione `pgvector` | Volume e tabella `pgvector` raggiungibili da dev | Volume gestito via `ensure_volume_exists()`; Lakebase da fare in Fase 3 |
 | **1 — Dominio & Ingestion arXiv** | `models.py`, `sources/base.py`, `sources/arxiv.py` (`relevance`, `lastUpdatedDate`, `submittedDate` + filtro data); test unitari offline | `ArxivSource` ritorna top-N paper + scarica PDF; pytest e ruff verdi | ✅ Completata |
-| **2 — Persistenza Delta & Volume** | `storage/delta.py` (tabella `papers` + Volume UC), `pipeline.py` (`run_ingestion`), job `ingest_papers.job.yml` | Scrittura/lettura Delta e salvataggio PDF su Volume funzionanti e testati | ✅ Completata |
+| **2 — Persistenza Delta & Volume** | `storage/delta.py` (tabella `papers` + Volume UC), `pipeline.py` (`run_ingestion`), job `autograph_pipeline.job.yml` | Scrittura/lettura Delta e salvataggio PDF su Volume funzionanti e testati | ✅ Completata |
 | **3 — Enrichment con Tool Calling & Citazioni** | Tag/categorie distinti; Scholar batch con retry limitati, fallback OpenAlex e citati esterni con diagnostica provider | Test offline e verifica provider sul workspace | Implementata; verifica live Databricks da completare. MLflow/embeddings restano da fare |
-| **4 — Knowledge Graph Builder** | `AUTHORS`, `SHARED_AUTHORS`, `CITES`, `SHARES_TAG`, `SHARES_CATEGORY` e tabelle Delta | Archi tipizzati con evidenze, due proiezioni del dataset | ⏳ Prossima |
+| **4 — Knowledge Graph Builder** | `AUTHORS`, `SHARED_AUTHORS`, `CITES`, `SHARES_TAG`, `SHARES_CATEGORY` e tabelle Delta | Archi tipizzati con evidenze, due proiezioni del dataset | Primo incremento Paper/CITES e persistenza implementato; autori/tematico da fare; verifica Databricks da eseguire |
 | **5 — Esportatore Obsidian + ZIP** | Formatter comune, vault bibliografico e tematico autonomi con PDF, senza `.canvas` | Due vault con link validi e ZIP nel Volume UC | ⏳ Da fare |
 | **6 — Pipeline End-to-End & Bundle** | Estensione `pipeline.py` a tutti gli step 1→4 | `databricks bundle validate -t dev` e run end-to-end su dev completati | ⏳ Da fare |
 | **7 — Estensioni future** | Modulo calcolo importanza da citazioni (`ranking/importance.py`), nuovo indice `PubMedSource`, ranking dei journal (`ranking/journals.py`) | Estensioni aggiunte tramite i contratti base senza modificare il core | ⏳ Da fare |

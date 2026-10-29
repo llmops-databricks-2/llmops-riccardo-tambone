@@ -197,6 +197,47 @@ def test_format_arxiv_query_with_categories_and_date() -> None:
     assert "submittedDate:[202401010000 TO 202406302359]" in query
 
 
+@pytest.mark.parametrize(
+    ("topic", "expected"),
+    [
+        ("neuroscience, peririnal cortex", '(all:"neuroscience" AND all:"peririnal cortex")'),
+        (" graph rag , large language models ", '(all:"graph rag" AND all:"large language models")'),
+        ("neuroscience, OR, cat:cs.AI", '(all:"neuroscience" AND all:"OR" AND all:"cat:cs.AI")'),
+        ('all:neuroscience AND all:"peririnal cortex"', '(all:neuroscience AND all:"peririnal cortex")'),
+        ("graph neural networks", "(graph neural networks)"),
+    ],
+)
+def test_topic_concepts_are_translated_to_explicit_and_phrases(topic: str, expected: str) -> None:
+    """Commas delimit literal concepts; queries without commas retain their semantics."""
+    request = SearchRequest(topic=topic)
+    assert format_arxiv_query(request) == expected
+
+
+@pytest.mark.parametrize("topic", [",", "rag,", ",rag", "rag, , llm", 'rag, "large language models"'])
+def test_invalid_topic_lists_fail_before_search(topic: str) -> None:
+    """Malformed concept lists must not silently broaden or change the search."""
+    with pytest.raises(ValueError, match="topics"):
+        SearchRequest(topic=topic)
+
+
+def test_comma_topics_preserve_category_date_filters_and_request_text() -> None:
+    """Provider formatting does not rewrite the saved user request or its filters."""
+    request = SearchRequest(
+        topic="neuroscience, peririnal cortex",
+        categories=["q-bio.NC"],
+        ranking_criteria=RankingCriteria.SUBMITTED_DATE,
+        criteria_date="2024-06-30",
+    )
+    client = FakeArxivClient([])
+    ArxivSource(client=client).search(request)  # type: ignore[arg-type]
+    assert client.last_search is not None
+    assert client.last_search.query == (
+        '(all:"neuroscience" AND all:"peririnal cortex") AND (cat:q-bio.NC) '
+        "AND submittedDate:[199101010000 TO 202406302359]"
+    )
+    assert request.topic == "neuroscience, peririnal cortex"
+
+
 def test_arxiv_source_implements_protocol_and_filters_by_criteria() -> None:
     """ArxivSource satisfies PaperSource, maps criteria, deduplicates, and extracts citations."""
     r1 = _fake_arxiv_result(
