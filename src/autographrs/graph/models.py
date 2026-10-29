@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-GRAPH_BUILDER_VERSION = "citations-v1"
+GRAPH_BUILDER_VERSION = "citations-v2"
 
 
 class GraphNode(BaseModel):
@@ -22,6 +22,7 @@ class GraphNode(BaseModel):
     publication_year: int | None = None
     urls: list[str] = Field(default_factory=list)
     abstract: str | None = None
+    text_variant: Literal["title_only", "title_abstract"] | None = None
     summary: str | None = None
     tags: list[str] = Field(default_factory=list)
     arxiv_category: list[str] = Field(default_factory=list)
@@ -55,6 +56,7 @@ class CitationGraph(BaseModel):
 
     run_id: str
     builder_version: str = GRAPH_BUILDER_VERSION
+    bibliography_snapshot_id: str | None = None
     nodes: list[GraphNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -80,6 +82,7 @@ class GraphBuild(BaseModel):
     run_id: str
     graph_build_id: str
     builder_version: str = GRAPH_BUILDER_VERSION
+    bibliography_snapshot_id: str | None = None
     status: Literal["RUNNING", "COMPLETED", "FAILED"] = "RUNNING"
     node_count: int = 0
     edge_count: int = 0

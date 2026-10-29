@@ -4,10 +4,12 @@
 > di riprendere il lavoro da zero leggendo solo questo file. Aggiornarlo a ogni decisione
 > architetturale rilevante e a ogni fase completata.
 
-Ultimo aggiornamento: 2026-10-28 — Stato: **Ingestion ed enrichment implementati; bibliografia
+Ultimo aggiornamento: 2026-10-29 — Stato: **Ingestion ed enrichment implementati; bibliografia
 da Scholar in batch con fallback OpenAlex, inclusi riferimenti esterni e metadati dei citati. HTML arXiv opzionale.
 Due viste Obsidian concordate,
-non ancora implementate. Verifica del nuovo metodo sul workspace da completare.**
+non ancora implementate. Primo graph builder Paper/CITES e task dedicato implementati,
+verifica grafo sul workspace da completare. Concordata estensione con embedding,
+assistente bibliografico read-only e server MCP; ancora da implementare.**
 
 ---
 
@@ -31,6 +33,9 @@ Sistema **agentico** (pipeline deterministica con **tool calling**) su Databrick
 5. Salva i dati strutturati in **Delta Tables** su Unity Catalog e gli **embeddings** in **Lakebase (`pgvector`)**.
 6. Esporta nel **Volume Unity Catalog** due vault Obsidian autonomi (bibliografico e tematico),
    con un archivio `.zip` scaricabile contenente entrambi. I PDF saranno inclusi con link relativi.
+7. Evoluzione concordata: assistente bibliografico che combina retrieval vettoriale e
+   navigazione del grafo tramite tool controllati, riutilizzabili attraverso MCP.
+   Questo livello interattivo non sostituisce la pipeline riproducibile o l'export autonomo.
 
 ### Estensibilità richiesta (design driver)
 
@@ -162,6 +167,8 @@ autographrs/
 │   ├── citation_service.py  # Scholar primario, OpenAlex se nessun riferimento; diagnostica separata
 │   ├── arxiv_html.py        # Provider opzionale: bibliografia HTML ufficiale
 │   ├── openalex.py          # Fallback: riferimenti e metadati citati da OpenAlex
+│   ├── abstracts.py         # Titolo/abstract esterni in batch e classificazione del testo
+│   ├── bibliography.py      # Snapshot Delta immutabili dei metadati esterni
 │   └── prompts/             # (pianificato) System/user prompt versionati
 ├── storage/
 │   ├── delta.py             # Lettura/scrittura Delta tables su Unity Catalog
@@ -193,6 +200,7 @@ e `ranking/journals.py` potranno essere agganciati come step/tool aggiuntivi.
 | Metadati paper | Delta table `papers` | `arxiv_id`, `title`, `authors`, `abstract`, `published`, `updated`, `categories`, `pdf_path`, `run_id` |
 | Arricchimento | Delta table `paper_enrichment` | `paper_id`, `title`, `authors`, `tags` LLM, `arxiv_category` umanizzate, `summary`, `run_id`, citazioni e stato lookup |
 | Nodi e Archi grafo | Delta tables `graph_nodes`, `graph_edges`, registro `graph_builds` | Primo incremento: Paper + `CITES`; autori e archi tematici futuri |
+| Abstract dei citati | Delta tables `bibliography_metadata`, `bibliography_snapshots` | Metadati per nodo esterno, provenienza, diagnostica e variante testo; snapshot esplicito nel grafo |
 | Embeddings | Lakebase (`pgvector`) | Tabella `paper_embeddings` su `lb-llmops-riccardo-tambone` |
 | Vault Obsidian + ZIP (pianificati) | UC Volume `arxiv_files` | Due cartelle vault e archivio comune nel percorso isolato della run |
 
@@ -404,6 +412,9 @@ Risorsa attuale `resources/autograph_pipeline.job.yml`:
   - `ranking_criteria`: `relevance` (default) | `lastUpdatedDate` | `submittedDate`
   - `criteria_date`: data opzionale (es. `YYYY-MM-DD` o range) quando si usa `lastUpdatedDate` / `submittedDate`
   - `env`: `${bundle.target}`
+- Dipendenze attuali: `ingest_papers -> enrich_bibliography -> build_graph`.
+  `run_id` effettivo dal primo task e `bibliography_snapshot_id` dal secondo vengono
+  passati come task values, senza ricerche implicite dell'ultimo snapshot.
 - Il job di test `hello` (`resources/hello.job.yml`) resta intatto.
 
 ---
@@ -420,6 +431,9 @@ Risorsa attuale `resources/autograph_pipeline.job.yml`:
 | **5 — Esportatore Obsidian + ZIP** | Formatter comune, vault bibliografico e tematico autonomi con PDF, senza `.canvas` | Due vault con link validi e ZIP nel Volume UC | ⏳ Da fare |
 | **6 — Pipeline End-to-End & Bundle** | Estensione `pipeline.py` a tutti gli step 1→4 | `databricks bundle validate -t dev` e run end-to-end su dev completati | ⏳ Da fare |
 | **7 — Estensioni future** | Modulo calcolo importanza da citazioni (`ranking/importance.py`), nuovo indice `PubMedSource`, ranking dei journal (`ranking/journals.py`) | Estensioni aggiunte tramite i contratti base senza modificare il core | ⏳ Da fare |
+| **8 — Retrieval semantico** | Metadati/abstract dei citati esterni a un livello, embedding titolo+abstract, indice pgvector e vicini `SIMILAR_TO` opzionali | Snapshot/versioni espliciti, retrieval valutato e assenze tracciate | Abstract/snapshot e varianti testo implementati; embedding/retrieval da fare |
+| **9 — Assistente con tool** | Tool tipizzati e agente read-only per ricerca vettoriale e navigazione del grafo | Risposte con evidenze, limiti e permessi verificati da test | Pianificata |
+| **10 — MCP ed espansione controllata** | Server MCP autenticato sugli stessi servizi; proposta di nuovi paper, acquisizione solo approvata | Client compatibile, deployment persistente, separazione lettura/scrittura | Pianificata |
 
 ---
 
@@ -435,14 +449,87 @@ Risorsa attuale `resources/autograph_pipeline.job.yml`:
 - **Resilienza**: `backoff` sulle chiamate API arXiv e AI Gateway; se l'LLM fallisce su un singolo
   paper, il paper viene comunque incluso nel grafo usando le categorie arXiv native.
 
+### Estensione concordata: assistente bibliografico con retrieval e MCP
+
+**Stato: embedding/agente/MCP pianificati; abstract esterni implementati.** Separare pipeline batch deterministica e
+assistente interattivo. L'agente decide come esplorare, non come inventare citazioni,
+assegnare identita' o eseguire codice libero. Graph builder ed exporter restano utilizzabili
+senza agente o server MCP.
+
+**Embedding e indice**
+
+- Partire da titolo + abstract, non chunk/PDF integrali. Modello tramite il gateway del corso;
+  verificare disponibilita'/permessi di Lakebase e pgvector prima dell'implementazione.
+- Conservare identita', run/snapshot, modello/versione, dimensione e hash dell'input;
+  cache/ricalcolo su identita' del contenuto e modello, senza mescolare spazi vettoriali.
+- Ricerca semantica, raccomandazioni e RAG con evidenze. Relazione opzionale `SIMILAR_TO`,
+  distinta da CITES e identita', con top-k/soglia da calibrare, score e regole versionate.
+  Evitare grafi tutto-connessi; lo score non e' una probabilita' di correlazione.
+
+**Citati esterni e abstract**
+
+- Implementato task `enrich_bibliography` tra ingestion e grafo. Recupera dai lavori identificati
+  esattamente Scholar `abstract` (batch fino a 100: ID Scholar/DOI/arXiv), poi per dati mancanti
+  OpenAlex `abstract_inverted_index` (batch fino a 100: ID OpenAlex/DOI); ricostruzione per
+  posizione con validazione. Copertura non garantita, anche per motivi di licenza.
+- Nodi deduplicati dalle regole del grafo; niente query per titolo, niente lookup su identita'
+  ambigue; selezionati usano abstract originali. Helper retry/pacing esistenti, budget retry
+  Scholar condiviso; errori esauriti interrompono batch successivi dello stesso percorso.
+  Nessun limite rigido alla durata complessiva; nessun fallback diretto arXiv aggiuntivo.
+- Separato step di metadati esterni, mai chiamate API nel builder. Snapshot Delta in
+  `bibliography_metadata`, registro `bibliography_snapshots`, con
+  con provenienza, data recupero, stato/errore e identita'; riferimento esplicito della
+  build allo snapshot consumato. Non riscrivere ingestion o grafi gia' pubblicati.
+- Solo un livello: niente bibliografia dei citati, espansione ricorsiva, download PDF
+  o summary LLM automatica. `num_papers` continua a limitare solo la selezione iniziale.
+- `text_variant` implementato: `title_abstract`, `title_only`, null senza titolo utilizzabile.
+  Conservato sul metadata e sui nodi del grafo; niente identificatori usati come titolo.
+  Stato `ok`/`missing`/`unresolved`/`error`/`rate_limited`, esiti provider separati.
+  Embedding non ancora generati; assenze esplicite, nessun abstract sintetizzato.
+  Un lavoro senza embedding rimane nel grafo CITES.
+
+**Tool proposti**
+
+| Tool | Contratto |
+|---|---|
+| `search_collection` | Retrieval semantico entro run/snapshot autorizzati |
+| `get_paper` | Identita', metadati, abstract e provenienza |
+| `get_bibliography` | Riferimenti acquisiti, non generati dall'LLM |
+| `get_neighbors` | Navigazione per tipo arco e profondita' limitata |
+| `search_sources` | Estensione successiva per cercare candidati esterni |
+| `propose_expansion` | Proposta strutturata di acquisizione, nessuna scrittura automatica |
+
+Prima agente read-only; in seguito espansione con conferma. Schemi Pydantic,
+autorizzazioni run/build, limiti risultati/chiamate/profondita', timeout e budget
+implementati nel codice, non solo nel prompt. Separare tool di lettura e scrittura;
+nessun SQL/Python arbitrario. Trattare testi dei paper come dati non fidati, non istruzioni.
+
+**MCP**
+
+- Esposizione degli stessi servizi/tool applicativi attraverso un server MCP autenticato,
+  riusabile dall'assistente del progetto e da client compatibili, senza duplicare la logica.
+- MCP e' un protocollo, non un agente o un indice. Batch Databricks via Python diretto;
+  non introdurre passaggi MCP obbligatori tra task.
+- Deployment persistente/raggiungibile con autenticazione da definire; non un notebook
+  temporaneo del job. Non modificare versioni/ambiente del corso per introdurlo.
+
+**Valutazione e ordine**
+
+- MLflow: prompt/modelli, tool call, evidenze, errori, latenza e token/costi, mai segreti.
+- Dataset versionato: retrieval Recall@k, pertinenza vicini, groundedness e correttezza
+  delle citazioni; test dei permessi, budget e separazione scrittura/lettura.
+- Metadati esterni implementati; completare grafo/export, poi embedding/retrieval, tool, agente read-only,
+  MCP e infine espansione approvata. Store vettoriale, soglie e hosting MCP richiedono
+  verifica tecnica prima di essere considerati disponibili.
+
 ---
 
 ## 9. Decisioni architetturali consolidate
 
-1. **Architettura agentica**: **Pipeline deterministica con Tool Calling** (niente loop autonomi imprevedibili; step chiari e tracciabili su MLflow).
+1. **Architettura agentica**: pipeline batch deterministica con Tool Calling; futuro agente interattivo separato con tool controllati e budget, prima read-only. Servizi applicativi esposti anche via MCP, non obbligatorio per i task batch.
 2. **Ordinamento e selezione**: default `relevance`, selezionabili `lastUpdatedDate` e `submittedDate` (con parametro data). Il calcolo dell'importanza tramite citazioni sarà un modulo/tool futuro separato.
 3. **Storage**: **Opzione A** — Metadati, arricchimenti e grafo salvati in **Delta Tables** su Unity Catalog; embeddings salvati su **Lakebase (`pgvector`)**.
-4. **Relazioni del Knowledge Graph**: `SHARES_TAG`, `SHARES_CATEGORY`, `CITES`, `SHARED_AUTHORS`, `AUTHORS`.
+4. **Relazioni del Knowledge Graph**: `SHARES_TAG`, `SHARES_CATEGORY`, `CITES`, `SHARED_AUTHORS`, `AUTHORS`; futura `SIMILAR_TO` da embedding, distinta dalle evidenze citazionali.
 5. **Formato Obsidian**: due vault autonomi (bibliografico con Paper/Autori; tematico con Paper),
    formatter comune con abstract e metadati, PDF relativi e ZIP scaricabile. Nessun Canvas/plugin
    richiesto e nessuna nota Tag obbligatoria nella vista tematica. Dettagli in sezione 5.

@@ -43,12 +43,22 @@ resources:
               criteria_date: "{{job.parameters.criteria_date}}"
               categories: "{{job.parameters.categories}}"
               run_id: "{{job.parameters.run_id}}"
-        - task_key: build_graph
+        - task_key: enrich_bibliography
           depends_on:
             - task_key: ingest_papers
+          environment_key: default
+          notebook_task:
+            notebook_path: deployment_notebooks/enrich_bibliography.py
+            base_parameters:
+              env: "{{job.parameters.env}}"
+              run_id: "{{tasks.ingest_papers.values.run_id}}"
+        - task_key: build_graph
+          depends_on:
+            - task_key: enrich_bibliography
           environment_key: default
           notebook_task:
             notebook_path: deployment_notebooks/build_graph.py
             base_parameters:
               env: "{{job.parameters.env}}"
               run_id: "{{tasks.ingest_papers.values.run_id}}"
+              bibliography_snapshot_id: "{{tasks.enrich_bibliography.values.bibliography_snapshot_id}}"

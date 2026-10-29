@@ -14,6 +14,7 @@ from test_ingestion import FakeSparkSession
 from test_run_storage import MemorySource
 
 from autographrs.config import ProjectConfig
+from autographrs.enrichment.bibliography import BibliographyStore
 from autographrs.enrichment.tagger import PaperTagger
 from autographrs.graph import GraphStore, build_citation_graph
 from autographrs.models import BibliographicReference, Paper, PaperEnrichment
@@ -312,7 +313,11 @@ def test_job_and_notebooks_pass_the_actual_published_run_id(graph_store: GraphSt
     assert job["name"] == "job-autograph-pipeline"
     tasks = {task["task_key"]: task for task in job["tasks"]}
     graph_task = tasks["build_graph"]
-    assert graph_task["depends_on"] == [{"task_key": "ingest_papers"}]
+    assert graph_task["depends_on"] == [{"task_key": "enrich_bibliography"}]
+    assert tasks["enrich_bibliography"]["depends_on"] == [{"task_key": "ingest_papers"}]
+    assert graph_task["notebook_task"]["base_parameters"]["bibliography_snapshot_id"] == (
+        "{{tasks.enrich_bibliography.values.bibliography_snapshot_id}}"
+    )
     assert graph_task["notebook_task"]["base_parameters"]["run_id"] == "{{tasks.ingest_papers.values.run_id}}"
     assert graph_task["environment_key"] == tasks["ingest_papers"]["environment_key"]
     assert job["environments"][0]["spec"]["environment_version"] == "5"
@@ -352,6 +357,17 @@ def test_job_and_notebooks_pass_the_actual_published_run_id(graph_store: GraphSt
     dbutils.jobs.taskValues.set.assert_called_once_with(key="run_id", value=run_id)
     parameters["run_id"] = run_id
     dbutils.jobs.taskValues.set.reset_mock()
+    metadata_store = BibliographyStore(store.config, spark=store.spark)
+    with (
+        patch.dict(sys.modules, {"databricks.sdk.runtime": runtime}),
+        patch("autographrs.config.load_config", return_value=store.config),
+        patch("autographrs.enrichment.bibliography.BibliographyStore", return_value=metadata_store),
+    ):
+        runpy.run_path(str(root / "resources" / "deployment_notebooks" / "enrich_bibliography.py"))
+    snapshot_id = dbutils.jobs.taskValues.set.call_args.kwargs["value"]
+    metadata_store.load_metadata(run_id, snapshot_id)
+    parameters["bibliography_snapshot_id"] = snapshot_id
+    dbutils.jobs.taskValues.set.reset_mock()
     with (
         patch.dict(sys.modules, {"databricks.sdk.runtime": runtime}),
         patch("autographrs.config.load_config", return_value=store.config),
@@ -360,4 +376,6 @@ def test_job_and_notebooks_pass_the_actual_published_run_id(graph_store: GraphSt
         runpy.run_path(str(root / "resources" / "deployment_notebooks" / "build_graph.py"))
     values = {call.kwargs["key"]: call.kwargs["value"] for call in dbutils.jobs.taskValues.set.call_args_list}
     assert values["run_id"] == run_id
-    assert store.load_graph(run_id, values["graph_build_id"]).nodes
+    graph = store.load_graph(run_id, values["graph_build_id"])
+    assert graph.nodes
+    assert graph.bibliography_snapshot_id == snapshot_id

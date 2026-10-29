@@ -67,6 +67,11 @@ def build_citation_graph(run_id: str, dataset: list[tuple[Paper, PaperEnrichment
                     }
                 ),
                 abstract=paper.abstract,
+                text_variant="title_abstract"
+                if paper.title.strip() and paper.abstract.strip()
+                else "title_only"
+                if paper.title.strip()
+                else None,
                 summary=enrichment.summary,
                 tags=enrichment.tags,
                 arxiv_category=enrichment.arxiv_category,
@@ -82,6 +87,7 @@ def build_citation_graph(run_id: str, dataset: list[tuple[Paper, PaperEnrichment
                 identity_status="ambiguous" if ambiguous else "missing" if unresolved else "identified",
                 identifiers=identifiers,
                 title=representative.title or representative.text,
+                text_variant="title_only" if representative.title and representative.title.strip() else None,
                 authors=representative.authors or [],
                 publication_year=representative.publication_year,
                 urls=sorted({url for entry in entries for url in entry.urls}),
