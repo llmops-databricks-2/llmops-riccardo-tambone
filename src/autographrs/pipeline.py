@@ -33,7 +33,7 @@ def run_ingestion(
     """Search, download, enrich (tags, summary, bibliography), and store papers.
 
     Args:
-        topic: Topic or search query string
+        topic: Comma-separated literal concepts (AND phrases in arXiv), or a query without commas
         num_papers: Number of top papers to download and store
         ranking_criteria: Ranking criterion ('relevance', 'submittedDate', or 'lastUpdatedDate')
         criteria_date: Optional date or date-range filter when using a date criterion

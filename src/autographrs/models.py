@@ -27,7 +27,7 @@ class SortOrder(StrEnum):
 class SearchRequest(BaseModel):
     """Parameters for searching and selecting papers."""
 
-    topic: str = Field(..., min_length=1, description="Search topic or query string")
+    topic: str = Field(..., min_length=1, description="Comma-separated concepts, or a legacy query without commas")
     num_papers: int = Field(default=10, ge=1, le=200, description="Number of top papers to retrieve")
     ranking_criteria: RankingCriteria = Field(
         default=RankingCriteria.RELEVANCE,
@@ -52,10 +52,18 @@ class SearchRequest(BaseModel):
     @field_validator("topic")
     @classmethod
     def strip_topic(cls, value: str) -> str:
-        """Ensure topic is not blank after stripping whitespace."""
+        """Validate comma-separated literal concepts while preserving legacy queries."""
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("topic must not be empty")
+        if "," in cleaned:
+            terms = [term.strip() for term in cleaned.split(",")]
+            if not all(terms):
+                raise ValueError("Comma-separated topics must not contain empty concepts")
+            if any('"' in term for term in terms):
+                raise ValueError(
+                    "Comma-separated topics must not contain double quotes; phrases are quoted automatically"
+                )
         return cleaned
 
 

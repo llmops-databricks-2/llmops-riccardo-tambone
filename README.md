@@ -138,8 +138,8 @@ Una lista vuota non prova l'assenza di bibliografia; `ok` non certifica la coper
 completa dell'indice o la disponibilita' di ogni metadato.
 
 L'enrichment si ferma a **`bibliography`** e non costruisce relazioni tra paper.
-Il futuro graph builder leggera' la bibliografia per costruire archi, compresi quelli
-verso opere esterne alla selezione. Non e' ancora implementato.
+Il graph builder legge la bibliografia per costruire archi `CITES`, compresi quelli
+verso opere esterne alla selezione, in uno step separato.
 Le vecchie colonne `referenced_arxiv_ids`, `cites_in_set`, `cited_by_in_set` e
 `papers.cited_paper_ids` non vengono piu' scritte o lette dall'applicazione.
 Tabelle Delta gia' esistenti possono mantenerle: i valori storici, inclusi quelli di
@@ -168,7 +168,7 @@ passa al resolver l'intero `Paper`: `source`, `paper_id`, DOI e URL della pagina
 - Nessun ID locale di un altro repository viene interpretato come ID arXiv; nessun match
   basato soltanto sul titolo. URL non indicizzati o DOI assenti possono impedire la risoluzione.
 - I riferimenti mantengono target Scholar/OpenAlex/DOI indipendenti dalla fonte iniziale.
-  La bibliografia e' il dato di ingresso del futuro grafo.
+  La bibliografia e' il dato di ingresso del grafo.
 - Le categorie di altre fonti rimangono in `papers.categories`: non vengono convertite con
   la tassonomia arXiv. In quel caso `arxiv_category` e' vuoto e i tag LLM restano disponibili.
 
@@ -180,7 +180,8 @@ Il provider HTML, arXiv-only, viene rifiutato esplicitamente su paper di altre f
 ## Dati
 
 Ogni ricerca produce un **dataset autonomo identificato da `run_id`**. AutoGraphRS salva
-tre tabelle Delta nello schema Unity Catalog dell'ambiente selezionato e i PDF nel Volume
+tre tabelle Delta di acquisizione/enrichment e tre tabelle del grafo nello schema Unity
+Catalog dell'ambiente selezionato e i PDF nel Volume
 `arxiv_files`. In dev le tabelle sono in `llmops_dev.riccardo_tambone`; acc e prd usano
 i rispettivi cataloghi configurati in [project_config.yml](project_config.yml).
 Non si tratta di un catalogo globale in cui ogni paper compare una sola volta.
@@ -228,7 +229,7 @@ A
   bibliography: [riferimento a B, riferimento a D]
 ```
 
-Il futuro grafo aperto potra' creare gli archi diretti `A -> B` e `A -> D`,
+Il grafo aperto crea gli archi diretti `A -> B` e `A -> D`,
 includendo D come nodo esterno. Una lista vuota con stato `rate_limited`
 non significa "nessuna citazione": significa che il dato non e' stato ottenuto.
 Anche un recupero `ok` dipende dalla copertura dell'indice bibliografico, non certifica
@@ -255,7 +256,7 @@ rimangono distinti dai riferimenti scoperti.
 | `authorships` | Autori strutturati del citato, con ID ed evidenza del provider quando disponibili |
 
 Un riferimento non risolto resta consultabile ma non viene unito ad altre voci sulla sola
-somiglianza del testo. I target OpenAlex/DOI/arXiv potranno diventare nodi condivisi del futuro grafo;
+somiglianza del testo. I target Scholar/OpenAlex/DOI/arXiv possono diventare nodi condivisi del grafo;
 i placeholder non rappresentano paper globalmente disambiguati.
 
 #### Identificativi degli autori
@@ -377,6 +378,9 @@ Questi controlli sono applicativi; Delta non impone una primary key univoca.
 papers + paper_enrichment della stessa run COMPLETED
                          |
                          v
+          Graph builder -> nodi e archi CITES (implementato)
+                         |
+                         v
                Formattazione delle note
                          |
              +-----------+-----------+
@@ -388,12 +392,95 @@ papers + paper_enrichment della stessa run COMPLETED
      CITES
 ```
 
-Oggi sono implementati acquisizione, storage, enrichment e gestione delle run.
-Il formatter Markdown, i grafi esportati, i vault e lo ZIP sono ancora da sviluppare:
-le tabelle conservano i dati per costruirli, ma non viene ancora salvata una tabella
-di nodi/archi ne' un vault pronto. Il contratto dell'output e' in
+Oggi sono implementati acquisizione, storage, enrichment, gestione delle run e grafo delle
+citazioni. Relazioni tematiche/autori, formatter Markdown, vault e ZIP restano da sviluppare.
+Il contratto dell'output e' in
 [PROJECT_PLAN.md](PROJECT_PLAN.md), gli schemi e i lettori in
 [delta.py](src/autographrs/storage/delta.py).
+
+## Graph builder: citazioni
+
+Il primo incremento costruisce **nodi Paper e archi diretti `CITES`** senza chiamate API,
+LLM, download o espansione ricorsiva. Input: `papers` e `paper_enrichment` della stessa run
+con ingestion ed enrichment completati. La bibliografia rimane immutata.
+
+Moduli in [graph/](src/autographrs/graph/):
+
+- `models.py`: nodi, archi con evidenze, risultato e registro della build.
+- `identity.py`: alias arXiv senza versione, DOI normalizzati e ID Scholar/OpenAlex.
+- `builder.py`: funzione pura `build_citation_graph(run_id, dataset)`, testabile senza Spark.
+- `storage.py`: `GraphStore`, pubblicazione e lettura Delta.
+
+### Regole di costruzione
+
+- Ogni paper selezionato rimane un nodo `selected`, anche senza riferimenti disponibili.
+- Uno stesso lavoro esterno con identificativi compatibili diventa un nodo `external`
+  condiviso. Alias acquisiti insieme permettono riconciliazioni transitive tra provider.
+- Riferimenti senza identita' diventano nodi `unresolved`, locali alla singola occorrenza.
+  Titoli o nomi simili non provocano fusioni.
+- Una componente con ID diversi nello stesso namespace, oppure con piu' paper selezionati,
+  e' ambigua: nessuna fusione nella componente, riferimenti locali e warning. Questa regola
+  conservativa puo' mantenere separati duplicati reali, ma evita di scegliere un match arbitrario.
+- Un solo arco per coppia citante/citato; tutte le occorrenze bibliografiche restano in
+  `evidence` (paper citante, reference ID, posizione, testo, provider, URL).
+  Nessun arco inverso inventato. I riferimenti al paper stesso sono omessi con warning.
+- Bibliografie null o con stato diverso da `ok` producono warning di copertura; i dati
+  disponibili vengono comunque usati. L'assenza di archi non certifica assenza di citazioni.
+
+Gli ID e l'ordine del risultato sono deterministici per lo stesso input e versione delle
+regole. Gli ID esterni possono cambiare se nuove evidenze modificano la riconciliazione:
+non sono un registro globale permanente. Autori, `AUTHORS`, `SHARED_AUTHORS`, `SHARES_TAG`
+e `SHARES_CATEGORY` non sono ancora costruiti; gli autori strutturati restano nell'enrichment.
+
+### Tabelle Delta e pubblicazione
+
+| Tabella | Chiave logica | Contenuto |
+|---|---|---|
+| `graph_nodes` | `(run_id, graph_build_id, node_id)` | Tipo `selected`/`external`/`unresolved`, stato identita', alias, titolo, autori, URL; abstract, summary, tag, categorie e percorso PDF per i selezionati |
+| `graph_edges` | `(run_id, graph_build_id, edge_id)` | `source_id`, `target_id`, relazione `CITES`, array di evidenze |
+| `graph_builds` | `(run_id, graph_build_id)` | Versione builder, stato `RUNNING`/`COMPLETED`/`FAILED`, conteggi, warning, errore e timestamp |
+
+In dev sono nello schema `llmops_dev.riccardo_tambone`.
+Ogni esecuzione genera un nuovo `graph_build_id`: non modifica ingestion/enrichment o build
+precedenti. Dopo le scritture, il builder rilegge e valida conteggi, contenuto ed estremi degli
+archi, poi pubblica `COMPLETED`. Le transazioni Delta sono separate: il registro e' una
+barriera applicativa di pubblicazione, non una transazione multi-tabella.
+Build fallite o interrotte possono lasciare righe non pubblicate; niente pulizia automatica.
+
+```python
+from autographrs.config import load_config
+from autographrs.graph import GraphStore
+
+store = GraphStore(load_config("project_config.yml", env="dev"))
+build = store.build_graph(run_id)  # Nessuna ripetizione delle chiamate ai provider
+graph = store.load_graph(run_id, build.graph_build_id)
+```
+
+Il lettore richiede entrambi gli ID e rifiuta build non completate o strutturalmente
+inconsistenti. Anche nelle query SQL filtrare sempre per `run_id` e `graph_build_id`
+e controllare `graph_builds.status = 'COMPLETED'`, senza mescolare snapshot.
+
+### Task del job Databricks
+
+Il job si chiama **`job-autograph-pipeline`** (con il prefisso dev aggiunto dal bundle).
+La definizione si trova in [autograph_pipeline.job.yml](resources/autograph_pipeline.job.yml).
+La chiave interna del bundle rimane `ingest_papers` per aggiornare la risorsa esistente
+senza crearne una nuova. Il job mantiene ambiente/versioni e aggiunge la dipendenza:
+
+```text
+ingest_papers -> build_graph
+```
+
+Il task ingestion pubblica il `run_id` effettivo con `dbutils.jobs.taskValues.set`;
+`build_graph` lo riceve tramite `{{tasks.ingest_papers.values.run_id}}`, non dal parametro
+job vuoto usato per avviare una nuova ricerca. Il secondo task pubblica `graph_build_id`
+per futuri consumer.
+
+Se fallisce solo il grafo, usare **Repair run** sul task `build_graph`, evitando di
+rieseguire ingestion su un `run_id` gia' completato. In alternativa eseguire il notebook
+[build_graph.py](resources/deployment_notebooks/build_graph.py) con `env` e `run_id` espliciti.
+La run di acquisizione resta completata anche se il grafo fallisce; lo stato del job
+Databricks e `graph_builds` segnalano il fallimento dello step.
 
 ### Run snapshots, retries and reads
 
@@ -450,8 +537,33 @@ databricks bundle validate -t dev
 databricks bundle deploy -t dev
 ```
 
-In the deployed **ingest_papers** job, choose **Run now with different parameters**:
+In the deployed **job-autograph-pipeline** job, choose **Run now with different parameters**:
 set `topic` to your search, `num_papers` to `3`, `ranking_criteria` to `relevance`,
 and leave `criteria_date`, `categories` and `run_id` empty for the first trial.
 Keep `env=dev`. The final notebook cell verifies that published paper and enrichment
 counts match; check `pipeline_runs.warnings` for external API limitations.
+
+### Topic: concetti separati da virgola
+
+Nel parametro `topic` separare i concetti con **`,`**, per esempio:
+
+```text
+neuroscience, peririnal cortex
+```
+
+Il provider arXiv traduce questo input in:
+
+```text
+(all:"neuroscience" AND all:"peririnal cortex")
+```
+
+Ogni concetto e' una frase, senza bisogno di virgolette; devono comparire **tutti**.
+Non sono ricerche indipendenti e `num_papers` limita il totale, non il numero per concetto.
+Piu' concetti rendono la ricerca piu' restrittiva, quindi possono dare pochi risultati.
+Le virgole iniziali/finali, i concetti vuoti e le virgolette nelle liste vengono rifiutati.
+Nelle liste gli operatori sono testo letterale, non sintassi del provider.
+
+Senza virgole il comportamento precedente rimane invariato: e' possibile usare una query
+arXiv esplicita, per esempio `all:neuroscience OR all:"peririnal cortex"`.
+Il testo originale ripulito dagli spazi esterni rimane nella richiesta salvata; la traduzione
+e' responsabilita' del provider di ricerca, non dei servizi bibliografici Scholar/OpenAlex.

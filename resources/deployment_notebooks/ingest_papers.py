@@ -12,7 +12,7 @@ from autographrs.pipeline import run_ingestion
 from autographrs.storage.delta import DeltaPaperStore
 
 dbutils.widgets.text("env", "dev")
-dbutils.widgets.text("topic", "large language models graph rag")
+dbutils.widgets.text("topic", "neuroscience, peririnal cortex")
 dbutils.widgets.text("num_papers", "10")
 dbutils.widgets.dropdown("ranking_criteria", "relevance", ["relevance", "submittedDate", "lastUpdatedDate"])
 dbutils.widgets.text("criteria_date", "")
@@ -65,3 +65,5 @@ print(
     f"Run {result.run_id}: stored {len(result.papers)} papers in {result.delta_table}, "
     f"{len(result.enrichments)} enrichments in {result.enrichment_table}, and PDFs in {result.volume_dir}"
 )
+
+dbutils.jobs.taskValues.set(key="run_id", value=result.run_id)

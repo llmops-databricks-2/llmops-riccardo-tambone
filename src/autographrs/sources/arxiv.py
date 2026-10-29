@@ -102,7 +102,11 @@ def format_arxiv_query(request: SearchRequest) -> str:
         Formatted arXiv query string
 
     """
-    clauses: list[str] = [f"({request.topic})"]
+    if "," in request.topic:
+        topic_query = " AND ".join(f'all:"{term.strip()}"' for term in request.topic.split(","))
+    else:
+        topic_query = request.topic
+    clauses: list[str] = [f"({topic_query})"]
 
     if request.categories:
         cat_expr = " OR ".join(f"cat:{cat.strip()}" for cat in request.categories if cat.strip())
