@@ -304,6 +304,27 @@ def test_hundreds_of_documents_have_exact_node_and_edge_counts() -> None:
     assert len(graph.warnings) == 0
 
 
+def test_job_parameters_do_not_override_downstream_run_ids() -> None:
+    """New job runs generate IDs; Databricks pushdown cannot override downstream task values."""
+    root = Path(__file__).resolve().parents[1]
+    job = yaml.safe_load((root / "resources" / "autograph_pipeline.job.yml").read_text())["resources"]["jobs"][
+        "ingest_papers"
+    ]
+    job_parameters = {item["name"]: item["default"] for item in job["parameters"]}
+    assert "run_id" not in job_parameters
+    assert "ingestion_run_id" not in job_parameters
+    actual_run_id = "published-ingestion-run"
+    for task in job["tasks"]:
+        effective = {}
+        for key, value in task["notebook_task"]["base_parameters"].items():
+            if value == "{{tasks.ingest_papers.values.run_id}}":
+                value = actual_run_id
+            effective[key] = value
+        effective.update(job_parameters)
+        expected = "" if task["task_key"] == "ingest_papers" else actual_run_id
+        assert effective["run_id"] == expected
+
+
 def test_job_and_notebooks_pass_the_actual_published_run_id(graph_store: GraphStore) -> None:
     """The graph task consumes the generated run ID, not the empty new-search job parameter."""
     root = Path(__file__).resolve().parents[1]
@@ -313,7 +334,10 @@ def test_job_and_notebooks_pass_the_actual_published_run_id(graph_store: GraphSt
     assert job["name"] == "job-autograph-pipeline"
     tasks = {task["task_key"]: task for task in job["tasks"]}
     graph_task = tasks["build_graph"]
-    assert graph_task["depends_on"] == [{"task_key": "enrich_bibliography"}]
+    assert graph_task["depends_on"] == [{"task_key": "publish_search_index"}]
+    assert "setup_search" not in tasks
+    assert tasks["publish_search_index"]["depends_on"] == [{"task_key": "prepare_embeddings"}]
+    assert tasks["prepare_embeddings"]["depends_on"] == [{"task_key": "enrich_bibliography"}]
     assert tasks["enrich_bibliography"]["depends_on"] == [{"task_key": "ingest_papers"}]
     assert graph_task["notebook_task"]["base_parameters"]["bibliography_snapshot_id"] == (
         "{{tasks.enrich_bibliography.values.bibliography_snapshot_id}}"
@@ -341,6 +365,8 @@ def test_job_and_notebooks_pass_the_actual_published_run_id(graph_store: GraphSt
         "criteria_date": "",
         "categories": "",
         "run_id": "",
+        "embedding_snapshot_id": "",
+        "search_publication_id": "",
     }
     dbutils = MagicMock()
     dbutils.widgets.get.side_effect = parameters.__getitem__

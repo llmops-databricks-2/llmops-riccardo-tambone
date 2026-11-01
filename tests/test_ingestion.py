@@ -117,6 +117,8 @@ class FakeSparkSession:
             self.tables.setdefault(table, [])
             schema = query.split("(", maxsplit=1)[1].rsplit(")", maxsplit=1)[0]
             self.columns.setdefault(table, [part.strip().split()[0] for part in schema.split(",")])
+        elif query.startswith("ALTER TABLE") and "SET TBLPROPERTIES" in query:
+            pass
         elif query.startswith("ALTER TABLE"):
             self.columns[table].append("source")
             for record in self.tables[table]:

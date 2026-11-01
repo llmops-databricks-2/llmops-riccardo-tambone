@@ -27,6 +27,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+app = ["mcp==1.12.4", "starlette==1.9.0", "uvicorn==0.54.0"]
 dev = ["pre-commit>=4.1.0, <5"]
 
 ci = ["pre-commit>=4.1.0, <5",

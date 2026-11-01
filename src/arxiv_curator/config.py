@@ -17,7 +17,24 @@ class ProjectConfig(BaseModel):
     embedding_endpoint: str = Field(
         ..., description="Embedding serving endpoint for ai_query, AI Search and model resources"
     )
-    embedding_service: str = Field(..., description="AI Gateway embedding model service name for the OpenAI client")
+    embedding_service: str = Field(
+        default="course_ops.gateway.embed",
+        description="AI Gateway embedding model service name for the OpenAI client",
+    )
+    bibliography_cache_days: int = Field(
+        default=30, ge=0, le=365, description="Successful abstract cache TTL; zero disables"
+    )
+    embedding_revision: str = Field(default="v1", min_length=1, description="Operator-managed Gateway routing revision")
+    embedding_batch_size: int = Field(default=32, ge=1, le=256)
+    embedding_max_chars: int = Field(default=24000, ge=1, description="Safety guard, not a model token limit")
+    lakebase_instance: str | None = None
+    lakebase_host: str | None = None
+    lakebase_database: str = "databricks_postgres"
+    lakebase_schema: str | None = None
+    lakebase_endpoint: str | None = Field(default=None, description="Optional full projects/.../endpoints/... resource")
+    lakebase_user: str | None = Field(default=None, description="OAuth Postgres role; defaults to current SDK identity")
+    search_timeout_seconds: int = Field(default=1800, ge=1, le=7200)
+    usage_policy_id: str | None = None
     experiment_path: str = Field(..., description="MLflow experiment path for this environment")
     warehouse_id: str = Field(..., description="Warehouse ID")
     genie_space_id: str | None = Field(None, description="Genie space ID for MCP integration")
@@ -49,7 +66,11 @@ class ProjectConfig(BaseModel):
         if env not in config_data:
             raise ValueError(f"Environment '{env}' not found in config file")
 
-        return cls(**config_data[env])
+        values = {
+            "usage_policy_id": config_data.get("usage_policy_id"),
+            **config_data[env],
+        }
+        return cls(**values)
 
     @property
     def schema(self) -> str:

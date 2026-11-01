@@ -1,6 +1,6 @@
 # Research pipeline: searches arXiv for topics with configurable ranking criteria
 # (relevance, submittedDate, lastUpdatedDate) and optional date filter, downloads PDFs
-# into the Unity Catalog Volume, enriches metadata and builds a separate citation graph.
+# into the Unity Catalog Volume, enriches metadata, embeds papers, publishes search and builds a citation graph.
 # Job-level `parameters` expose editable fields directly in the Databricks Jobs UI.
 resources:
   jobs:
@@ -12,7 +12,7 @@ resources:
         - name: env
           default: ${bundle.target}
         - name: topic
-          default: "neuroscience, peririnal cortex"
+          default: "neuroscience, cognition"
         - name: num_papers
           default: "10"
         - name: ranking_criteria
@@ -20,8 +20,6 @@ resources:
         - name: criteria_date
           default: ""
         - name: categories
-          default: ""
-        - name: run_id
           default: ""
       environments:
         - environment_key: default
@@ -42,7 +40,7 @@ resources:
               ranking_criteria: "{{job.parameters.ranking_criteria}}"
               criteria_date: "{{job.parameters.criteria_date}}"
               categories: "{{job.parameters.categories}}"
-              run_id: "{{job.parameters.run_id}}"
+              run_id: ""
         - task_key: enrich_bibliography
           depends_on:
             - task_key: ingest_papers
@@ -52,9 +50,29 @@ resources:
             base_parameters:
               env: "{{job.parameters.env}}"
               run_id: "{{tasks.ingest_papers.values.run_id}}"
-        - task_key: build_graph
+        - task_key: prepare_embeddings
           depends_on:
             - task_key: enrich_bibliography
+          environment_key: default
+          notebook_task:
+            notebook_path: deployment_notebooks/prepare_embeddings.py
+            base_parameters:
+              env: "{{job.parameters.env}}"
+              run_id: "{{tasks.ingest_papers.values.run_id}}"
+              bibliography_snapshot_id: "{{tasks.enrich_bibliography.values.bibliography_snapshot_id}}"
+        - task_key: publish_search_index
+          depends_on:
+            - task_key: prepare_embeddings
+          environment_key: default
+          notebook_task:
+            notebook_path: deployment_notebooks/publish_search_index.py
+            base_parameters:
+              env: "{{job.parameters.env}}"
+              run_id: "{{tasks.ingest_papers.values.run_id}}"
+              embedding_snapshot_id: "{{tasks.prepare_embeddings.values.embedding_snapshot_id}}"
+        - task_key: build_graph
+          depends_on:
+            - task_key: publish_search_index
           environment_key: default
           notebook_task:
             notebook_path: deployment_notebooks/build_graph.py
@@ -62,3 +80,5 @@ resources:
               env: "{{job.parameters.env}}"
               run_id: "{{tasks.ingest_papers.values.run_id}}"
               bibliography_snapshot_id: "{{tasks.enrich_bibliography.values.bibliography_snapshot_id}}"
+              embedding_snapshot_id: "{{tasks.prepare_embeddings.values.embedding_snapshot_id}}"
+              search_publication_id: "{{tasks.publish_search_index.values.search_publication_id}}"

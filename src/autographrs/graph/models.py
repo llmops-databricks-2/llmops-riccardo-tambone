@@ -57,6 +57,8 @@ class CitationGraph(BaseModel):
     run_id: str
     builder_version: str = GRAPH_BUILDER_VERSION
     bibliography_snapshot_id: str | None = None
+    embedding_snapshot_id: str | None = None
+    search_publication_id: str | None = None
     nodes: list[GraphNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -83,6 +85,8 @@ class GraphBuild(BaseModel):
     graph_build_id: str
     builder_version: str = GRAPH_BUILDER_VERSION
     bibliography_snapshot_id: str | None = None
+    embedding_snapshot_id: str | None = None
+    search_publication_id: str | None = None
     status: Literal["RUNNING", "COMPLETED", "FAILED"] = "RUNNING"
     node_count: int = 0
     edge_count: int = 0

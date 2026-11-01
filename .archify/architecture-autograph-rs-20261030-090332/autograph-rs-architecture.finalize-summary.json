@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\candidate.json",
+    "sha256": "8818eab2b79f6803395d9bce2fce2b63176f99754ebb6397a79474a4c4d2ff26",
+    "bytes": 9150
+  },
+  "artifact": {
+    "path": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+    "sha256": "eb5caf51a38868d0bb5ff3cb746c86e91267ced8917f87dd65f18c6321c23fc2",
+    "bytes": 856748
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "fail"
+  },
+  "failedStage": "browser-check",
+  "diagnostics": [
+    {
+      "code": "viewer/browser-check-runtime",
+      "severity": "error",
+      "message": "browser-check could not complete its Chrome inspection.",
+      "subject": {
+        "artifact": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html"
+      },
+      "evidence": {
+        "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nWindows browser startup may have relaunched before connecting to the DevTools pipe. Retry from a non-elevated PowerShell opened normally, outside an elevated or compatibility-mode parent. Archify does not disable browser de-elevation or the sandbox to preserve pipe handles.\nChrome transport: Node v24.11.1, libuv 1.51.0, win32; pid=21856, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=false, ended=true, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      },
+      "supportedFixes": [
+        "resolve the reported Chrome inspection error, then rerun browser-check"
+      ]
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 1,
+    "shown": 1,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.finalize.json",
+    "summaryReceipt": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.finalize-summary.json",
+    "browserCheckReceipt": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-30T08:08:39.203Z",
+    "source": "network",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 1822,
+  "browserCheck": {
+    "requested": true,
+    "ran": false
+  }
+}

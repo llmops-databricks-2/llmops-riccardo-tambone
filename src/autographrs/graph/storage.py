@@ -23,7 +23,7 @@ GRAPH_EDGES_DDL_SCHEMA = (
 GRAPH_BUILDS_DDL_SCHEMA = (
     "run_id STRING, graph_build_id STRING, builder_version STRING, status STRING, node_count INT, "
     "edge_count INT, warnings ARRAY<STRING>, error STRING, started_at TIMESTAMP, completed_at TIMESTAMP, "
-    "bibliography_snapshot_id STRING"
+    "bibliography_snapshot_id STRING, embedding_snapshot_id STRING, search_publication_id STRING"
 )
 
 
@@ -79,6 +79,8 @@ class GraphStore(DeltaPaperStore):
             run_id=build.run_id,
             builder_version=build.builder_version,
             bibliography_snapshot_id=build.bibliography_snapshot_id,
+            embedding_snapshot_id=build.embedding_snapshot_id,
+            search_publication_id=build.search_publication_id,
             nodes=sorted(nodes, key=lambda node: node.node_id),
             edges=sorted(edges, key=lambda edge: (edge.source_id, edge.target_id)),
             warnings=build.warnings,
@@ -98,31 +100,44 @@ class GraphStore(DeltaPaperStore):
             raise ValueError(f"Graph build {graph_build_id} is not published")
         return self._read_graph(builds[0])
 
-    def build_graph(self, run_id: str, bibliography_snapshot_id: str | None = None) -> GraphBuild:
+    def build_graph(
+        self,
+        run_id: str,
+        bibliography_snapshot_id: str | None = None,
+        embedding_snapshot_id: str | None = None,
+        search_publication_id: str | None = None,
+    ) -> GraphBuild:
         """Build from a completed enrichment run and publish only after read-back validation."""
         dataset = self.load_run_dataset(run_id)
-        build = GraphBuild(run_id=run_id, graph_build_id=uuid4().hex, bibliography_snapshot_id=bibliography_snapshot_id)
+        build = GraphBuild(
+            run_id=run_id,
+            graph_build_id=uuid4().hex,
+            bibliography_snapshot_id=bibliography_snapshot_id,
+            embedding_snapshot_id=embedding_snapshot_id,
+            search_publication_id=search_publication_id,
+        )
         self._save_build(build)
         try:
-            graph = build_citation_graph(run_id, dataset)
+            if bool(embedding_snapshot_id) != bool(search_publication_id):
+                raise ValueError("Embedding snapshot and search publication must be supplied together")
+            if embedding_snapshot_id and search_publication_id:
+                from autographrs.embeddings.search import SearchStore
+
+                search = SearchStore(self.config, spark=self.spark)
+                search.load_publication(run_id, embedding_snapshot_id, search_publication_id)
+                snapshot, _ = search.load_snapshot(run_id, embedding_snapshot_id)
+                if snapshot.bibliography_snapshot_id != bibliography_snapshot_id:
+                    raise ValueError("Embedding and graph bibliography snapshots differ")
             if bibliography_snapshot_id:
                 from autographrs.enrichment.bibliography import BibliographyStore
 
-                metadata_store = BibliographyStore(self.config, spark=self.spark)
-                metadata = metadata_store.load_metadata(run_id, bibliography_snapshot_id)
-                by_node = {item.node_id: item for item in metadata}
-                if set(by_node) != {node.node_id for node in graph.nodes if node.kind != "selected"}:
-                    raise ValueError("Bibliography metadata keys do not match this graph")
-                graph.bibliography_snapshot_id = bibliography_snapshot_id
-                for node in graph.nodes:
-                    if node.node_id in by_node:
-                        item = by_node[node.node_id]
-                        node.title = item.title or node.title
-                        node.abstract = item.abstract
-                        node.text_variant = item.text_variant
-                        if item.status != "ok":
-                            graph.warnings.append(f"{node.node_id}: abstract {item.status}")
-                graph.warnings = sorted(set(graph.warnings))
+                graph = BibliographyStore(self.config, spark=self.spark).load_graph_input(
+                    run_id, bibliography_snapshot_id
+                )
+            else:
+                graph = build_citation_graph(run_id, dataset)
+            graph.embedding_snapshot_id = embedding_snapshot_id
+            graph.search_publication_id = search_publication_id
             build.node_count = len(graph.nodes)
             build.edge_count = len(graph.edges)
             build.warnings = graph.warnings

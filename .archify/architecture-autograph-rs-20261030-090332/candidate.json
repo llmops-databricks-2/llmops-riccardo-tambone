@@ -1,0 +1,359 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AutoGraphRS Runtime Architecture",
+    "subtitle": "Committed batch-ingestion and citation-graph path",
+    "locale": "en",
+    "output": ".archify/architecture-autograph-rs-20261030-090332/autograph-rs-architecture.html",
+    "visual_preset": "blueprint",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/llmops-databricks-2/llmops-riccardo-tambone.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "3ff9c912ba2ddec05cb80a7b00562e9710c584e0"
+    }
+  },
+  "components": [
+    {
+      "id": "job",
+      "type": "cloud",
+      "label": "Databricks Job",
+      "sublabel": "job-autograph-pipeline",
+      "tag": "Databricks",
+      "pos": [40, 310],
+      "size": [132, 64],
+      "sources": [
+        {
+          "path": "resources/autograph_pipeline.job.yml",
+          "line": 6,
+          "end_line": 20
+        },
+        {
+          "path": "resources/autograph_pipeline.job.yml",
+          "line": 33,
+          "end_line": 64
+        }
+      ]
+    },
+    {
+      "id": "notebooks",
+      "type": "backend",
+      "label": "Notebook Tasks",
+      "sublabel": "ingest + graph",
+      "tag": "Databricks",
+      "pos": [230, 310],
+      "size": [150, 64],
+      "sources": [
+        {
+          "path": "resources/deployment_notebooks/ingest_papers.py",
+          "line": 8,
+          "end_line": 42
+        },
+        {
+          "path": "resources/deployment_notebooks/build_graph.py",
+          "line": 6,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "id": "coordinator",
+      "type": "backend",
+      "label": "Ingestion Coordinator",
+      "sublabel": "run_ingestion",
+      "tag": "AutoGraphRS",
+      "pos": [455, 310],
+      "size": [165, 64],
+      "sources": [
+        {
+          "path": "src/autographrs/pipeline.py",
+          "line": 16,
+          "end_line": 92
+        },
+        {
+          "path": "src/autographrs/storage/delta.py",
+          "line": 569,
+          "end_line": 665
+        }
+      ]
+    },
+    {
+      "id": "arxiv_adapter",
+      "type": "backend",
+      "label": "arXiv Adapter",
+      "sublabel": "search + PDF download",
+      "tag": "AutoGraphRS",
+      "pos": [700, 310],
+      "size": [145, 64],
+      "sources": [
+        {
+          "path": "src/autographrs/sources/arxiv.py",
+          "line": 144,
+          "end_line": 202
+        },
+        {
+          "path": "src/autographrs/sources/arxiv.py",
+          "line": 215,
+          "end_line": 257
+        }
+      ]
+    },
+    {
+      "id": "arxiv_api",
+      "type": "external",
+      "label": "arXiv API",
+      "sublabel": "search + PDF endpoint",
+      "tag": "External",
+      "pos": [1025, 310],
+      "size": [145, 64],
+      "sources": [
+        {
+          "path": "src/autographrs/sources/arxiv.py",
+          "line": 159,
+          "end_line": 202
+        },
+        {
+          "path": "src/autographrs/sources/arxiv.py",
+          "line": 247,
+          "end_line": 257
+        }
+      ]
+    },
+    {
+      "id": "enrichment",
+      "type": "backend",
+      "label": "Enrichment Stage",
+      "sublabel": "LLM tags + bibliography",
+      "tag": "AutoGraphRS",
+      "pos": [455, 510],
+      "size": [165, 64],
+      "sources": [
+        {
+          "path": "src/autographrs/storage/delta.py",
+          "line": 505,
+          "end_line": 567
+        },
+        {
+          "path": "src/autographrs/enrichment/tagger.py",
+          "line": 184,
+          "end_line": 242
+        },
+        {
+          "path": "src/autographrs/enrichment/citation_service.py",
+          "line": 10,
+          "end_line": 46
+        }
+      ]
+    },
+    {
+      "id": "ai_gateway",
+      "type": "cloud",
+      "label": "Databricks AI Gateway",
+      "sublabel": "workspace-hosted chat API",
+      "tag": "Managed service",
+      "pos": [720, 430],
+      "size": [155, 64],
+      "sources": [
+        {
+          "path": "src/autographrs/enrichment/llm.py",
+          "line": 9,
+          "end_line": 30
+        },
+        {
+          "path": "src/autographrs/enrichment/tagger.py",
+          "line": 207,
+          "end_line": 229
+        }
+      ]
+    },
+    {
+      "id": "citation_apis",
+      "type": "external",
+      "label": "Citation Indexes",
+      "sublabel": "Scholar; OpenAlex fallback",
+      "tag": "External",
+      "pos": [1025, 510],
+      "size": [155, 64],
+      "sources": [
+        {
+          "path": "src/autographrs/enrichment/citation_service.py",
+          "line": 10,
+          "end_line": 46
+        },
+        {
+          "path": "src/autographrs/enrichment/citations.py",
+          "line": 17,
+          "end_line": 20
+        },
+        {
+          "path": "src/autographrs/enrichment/openalex.py",
+          "line": 22,
+          "end_line": 22
+        }
+      ]
+    },
+    {
+      "id": "uc_store",
+      "type": "database",
+      "label": "Unity Catalog Store",
+      "sublabel": "Delta tables + PDF Volume",
+      "tag": "Databricks",
+      "pos": [720, 630],
+      "size": [160, 64],
+      "sources": [
+        {
+          "path": "src/autographrs/storage/delta.py",
+          "line": 175,
+          "end_line": 220
+        },
+        {
+          "path": "src/autographrs/storage/delta.py",
+          "line": 424,
+          "end_line": 441
+        },
+        {
+          "path": "src/autographrs/storage/delta.py",
+          "line": 444,
+          "end_line": 500
+        }
+      ]
+    },
+    {
+      "id": "graph_stage",
+      "type": "backend",
+      "label": "Graph Build + Publish",
+      "sublabel": "CITES snapshot",
+      "tag": "AutoGraphRS",
+      "pos": [230, 630],
+      "size": [165, 64],
+      "sources": [
+        {
+          "path": "resources/deployment_notebooks/build_graph.py",
+          "line": 6,
+          "end_line": 24
+        },
+        {
+          "path": "src/autographrs/graph/builder.py",
+          "line": 16,
+          "end_line": 20
+        },
+        {
+          "path": "src/autographrs/graph/storage.py",
+          "line": 101,
+          "end_line": 136
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Databricks workspace",
+      "wraps": [
+        "job",
+        "notebooks",
+        "coordinator",
+        "arxiv_adapter",
+        "enrichment",
+        "ai_gateway",
+        "uc_store",
+        "graph_stage"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "External provider trust boundary",
+      "wraps": [
+        "arxiv_api",
+        "citation_apis"
+      ],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "from": "job",
+      "to": "notebooks",
+      "label": "launch tasks",
+      "variant": "emphasis"
+    },
+    {
+      "from": "notebooks",
+      "to": "coordinator",
+      "label": "run_ingestion"
+    },
+    {
+      "from": "coordinator",
+      "to": "arxiv_adapter",
+      "label": "select papers"
+    },
+    {
+      "from": "arxiv_adapter",
+      "to": "arxiv_api",
+      "label": "search + PDF"
+    },
+    {
+      "from": "coordinator",
+      "to": "enrichment",
+      "label": "enrich"
+    },
+    {
+      "from": "enrichment",
+      "to": "ai_gateway",
+      "label": "tool call",
+      "variant": "security"
+    },
+    {
+      "from": "enrichment",
+      "to": "citation_apis",
+      "label": "reference lookup",
+      "variant": "dashed"
+    },
+    {
+      "from": "enrichment",
+      "to": "uc_store",
+      "label": "persist results"
+    },
+    {
+      "from": "notebooks",
+      "to": "graph_stage",
+      "label": "build_graph task"
+    },
+    {
+      "from": "graph_stage",
+      "to": "uc_store",
+      "label": "read run + publish graph",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Task and Request Flow",
+      "items": [
+        "The job orders ingest_papers, enrich_bibliography, then build_graph; run_id is passed between tasks.",
+        "Ingestion accepts a topic, count, ranking criterion, optional date/category filters, and environment."
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Enrichment Behavior",
+      "items": [
+        "The chat model returns structured tags and a short summary through tool calling.",
+        "Semantic Scholar is queried in batch first; OpenAlex is used only when a paper has no Scholar bibliography."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Persistence and Trust",
+      "items": [
+        "Unity Catalog stores paper and enrichment Delta data plus downloaded PDFs in a Volume.",
+        "Graph publication reads a completed run and writes versioned nodes, edges, and build metadata to separate Delta tables.",
+        "Public scholarly providers sit outside the Databricks workspace boundary."
+      ]
+    }
+  ]
+}

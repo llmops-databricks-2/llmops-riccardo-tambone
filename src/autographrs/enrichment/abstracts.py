@@ -4,14 +4,17 @@ import urllib.error
 from datetime import UTC, datetime
 from typing import Literal
 
+import arxiv
 from loguru import logger
 from pydantic import BaseModel, Field, TypeAdapter
+from requests.exceptions import RequestException
 
 from autographrs.enrichment.arxiv_html import normalize_doi
 from autographrs.enrichment.citations import SemanticScholarCitationResolver
 from autographrs.enrichment.openalex import OpenAlexCitationResolver
 from autographrs.graph.models import GraphNode
 from autographrs.models import CitationProviderReport
+from autographrs.sources.arxiv import canonical_arxiv_id
 
 
 def text_variant(title: str | None, abstract: str | None) -> Literal["title_only", "title_abstract"] | None:
@@ -48,9 +51,11 @@ class AbstractResolver:
         self,
         scholar: SemanticScholarCitationResolver | None = None,
         openalex: OpenAlexCitationResolver | None = None,
+        arxiv_client: arxiv.Client | None = None,
     ) -> None:
         self.scholar = scholar or SemanticScholarCitationResolver()
         self.openalex = openalex or OpenAlexCitationResolver()
+        self.arxiv_client = arxiv_client or arxiv.Client(page_size=100, delay_seconds=3.0, num_retries=2)
 
     def fetch(self, nodes: list[GraphNode]) -> list[AbstractMetadata]:
         """Return one outcome per external/unresolved node with a bounded shared Scholar retry budget."""
@@ -174,6 +179,42 @@ class AbstractResolver:
                         for key in pending[(field, value)]:
                             self._report(results[key], "openalex", status, error)
                     break
+        arxiv_queries: dict[str, list[str]] = {}
+        for node in nodes:
+            if node.kind == "unresolved" or results[node.node_id].abstract:
+                continue
+            ids = [value.partition(":")[2] for value in node.identifiers if value.startswith("arxiv:")]
+            if len(ids) == 1:
+                arxiv_queries.setdefault(canonical_arxiv_id(ids[0]), []).append(node.node_id)
+        arxiv_ids = sorted(arxiv_queries)
+        for start in range(0, len(arxiv_ids), 100):
+            chunk = arxiv_ids[start : start + 100]
+            try:
+                returned = {}
+                for paper in self.arxiv_client.results(arxiv.Search(id_list=chunk, max_results=len(chunk))):
+                    key = canonical_arxiv_id(paper.entry_id)
+                    if key not in chunk or key in returned:
+                        raise ValueError("arXiv returned unexpected or duplicate identifiers")
+                    returned[key] = paper
+                for key in chunk:
+                    paper = returned.get(key)
+                    for node_id in arxiv_queries[key]:
+                        result = results[node_id]
+                        if paper:
+                            self._apply(result, paper.title, paper.summary, "arxiv", paper.entry_id)
+                        self._report(
+                            result,
+                            "arxiv",
+                            "ok" if result.abstract else "not_found",
+                            None if result.abstract else "No arXiv abstract returned",
+                        )
+            except (arxiv.ArxivError, RequestException, urllib.error.URLError, TimeoutError, ValueError) as exc:
+                status = "rate_limited" if isinstance(exc, arxiv.HTTPError) and exc.status == 429 else "error"
+                logger.warning("arXiv abstract fallback failed: {}: {}", type(exc).__name__, exc)
+                for key in arxiv_ids[start:]:
+                    for node_id in arxiv_queries[key]:
+                        self._report(results[node_id], "arxiv", status, f"arXiv {type(exc).__name__}: {exc}")
+                break
         for result in results.values():
             result.text_variant = text_variant(result.title, result.abstract)
             if result.abstract:

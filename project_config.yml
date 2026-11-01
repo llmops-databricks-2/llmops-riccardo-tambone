@@ -6,8 +6,8 @@
 # Your usage policy: set it on every serverless job, endpoint and app you create.
 usage_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
 
-# Lakebase projects may be shared across environments; Unity Catalog
-# schemas remain separate. Your cohort provisions the Lakebase values below.
+# One existing Lakebase project/compute, separate PostgreSQL schemas per environment.
+# lakebase_endpoint may optionally pin its full projects/.../branches/.../endpoints/... resource.
 
 # Development: your own schema in the dev catalog, which you manage and work in.
 dev:
@@ -17,6 +17,11 @@ dev:
   llm_endpoint: "course_ops.gateway.chat"
   embedding_endpoint: "databricks-gte-large-en"
   embedding_service: "course_ops.gateway.embed"
+  # Bump revision whenever the Gateway's embedding model/routing changes.
+  embedding_revision: "v1"
+  lakebase_host: "ep-round-base-d18izdfh.database.us-west-2.cloud.databricks.com"
+  lakebase_database: "databricks_postgres"
+  lakebase_schema: "autographrs_dev"
   warehouse_id: "cbb5a7d4b7979574"
   experiment_path: "/llmops/riccardo-tambone-dev"
   # Your provisioned Lakebase project.
@@ -30,6 +35,10 @@ acc:
   llm_endpoint: "course_ops.gateway.chat"
   embedding_endpoint: "databricks-gte-large-en"
   embedding_service: "course_ops.gateway.embed"
+  embedding_revision: "v1"
+  lakebase_host: "ep-round-base-d18izdfh.database.us-west-2.cloud.databricks.com"
+  lakebase_database: "databricks_postgres"
+  lakebase_schema: "autographrs_acc"
   warehouse_id: "cbb5a7d4b7979574"
   experiment_path: "/llmops/riccardo-tambone-acc"
   # Your provisioned Lakebase project for this environment.
@@ -43,6 +52,10 @@ prd:
   llm_endpoint: "course_ops.gateway.chat"
   embedding_endpoint: "databricks-gte-large-en"
   embedding_service: "course_ops.gateway.embed"
+  embedding_revision: "v1"
+  lakebase_host: "ep-round-base-d18izdfh.database.us-west-2.cloud.databricks.com"
+  lakebase_database: "databricks_postgres"
+  lakebase_schema: "autographrs_prd"
   warehouse_id: "cbb5a7d4b7979574"
   experiment_path: "/llmops/riccardo-tambone-prd"
   # Your provisioned Lakebase project for this environment.

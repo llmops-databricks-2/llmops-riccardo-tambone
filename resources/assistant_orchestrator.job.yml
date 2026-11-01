@@ -1,0 +1,85 @@
+resources:
+  jobs:
+    refresh_assistant:
+      name: refresh-autographrs-assistant
+      budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      parameters:
+        - name: env
+          default: ${bundle.target}
+        - name: topic
+          default: "neuroscience, cognition"
+        - name: num_papers
+          default: "10"
+        - name: ranking_criteria
+          default: "relevance"
+        - name: criteria_date
+          default: ""
+        - name: categories
+          default: ""
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
+      tasks:
+        - task_key: pipeline
+          max_retries: 0
+          run_job_task:
+            job_id: ${resources.jobs.ingest_papers.id}
+            job_parameters:
+              env: "{{job.parameters.env}}"
+              topic: "{{job.parameters.topic}}"
+              num_papers: "{{job.parameters.num_papers}}"
+              ranking_criteria: "{{job.parameters.ranking_criteria}}"
+              criteria_date: "{{job.parameters.criteria_date}}"
+              categories: "{{job.parameters.categories}}"
+        - task_key: resolve_collection
+          depends_on:
+            - task_key: pipeline
+          environment_key: default
+          notebook_task:
+            notebook_path: deployment_notebooks/resolve_assistant_collection.py
+            base_parameters:
+              env: "{{job.parameters.env}}"
+              pipeline_task_run_id: "{{tasks.pipeline.run_id}}"
+              pipeline_job_id: ${resources.jobs.ingest_papers.id}
+        - task_key: stop_assistant
+          depends_on:
+            - task_key: resolve_collection
+          environment_key: default
+          timeout_seconds: 1500
+          notebook_task:
+            notebook_path: deployment_notebooks/assistant_lifecycle.py
+            base_parameters:
+              action: stop
+              app_name: ${resources.apps.bibliographic_assistant.name}
+        - task_key: configure_assistant
+          depends_on:
+            - task_key: stop_assistant
+          max_retries: 0
+          run_job_task:
+            job_id: ${resources.jobs.setup_assistant.id}
+            job_parameters:
+              env: "{{job.parameters.env}}"
+              app_name: ${resources.apps.bibliographic_assistant.name}
+              parent_path: ${workspace.root_path}
+              run_id: "{{tasks.resolve_collection.values.run_id}}"
+              graph_build_id: "{{tasks.resolve_collection.values.graph_build_id}}"
+        - task_key: start_assistant
+          depends_on:
+            - task_key: configure_assistant
+          environment_key: default
+          timeout_seconds: 1800
+          notebook_task:
+            notebook_path: deployment_notebooks/assistant_lifecycle.py
+            base_parameters:
+              action: start
+              app_name: ${resources.apps.bibliographic_assistant.name}
+              env: "{{job.parameters.env}}"
+              source_code_path: ${workspace.file_path}
+              run_id: "{{tasks.resolve_collection.values.run_id}}"
+              graph_build_id: "{{tasks.resolve_collection.values.graph_build_id}}"
