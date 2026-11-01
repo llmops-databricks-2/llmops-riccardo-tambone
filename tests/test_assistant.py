@@ -1155,3 +1155,22 @@ def test_prompt_separates_global_from_collection_citation_rankings() -> None:
     assert "Global citation counts" in SYSTEM_PROMPT and "not stored" in SYSTEM_PROMPT
     assert '"Most cited" without qualification means global' in SYSTEM_PROMPT
     assert "Never present a local count as a global one" in SYSTEM_PROMPT
+
+
+def test_prompt_asks_for_human_answers_without_internal_details() -> None:
+    """Researchers get direct answers; tool names, scores and identifiers stay in the evidence panel."""
+    from autographrs.assistant.agent import SYSTEM_PROMPT
+
+    assert "ANSWER STYLE" in SYSTEM_PROMPT
+    assert "never mention tool names, scores, similarity values" in SYSTEM_PROMPT
+    assert "exact node_id in parentheses" in SYSTEM_PROMPT and "The chat renders Markdown" in SYSTEM_PROMPT
+    assert 'do not write "(Genie)"' in SYSTEM_PROMPT
+
+
+def test_chat_ui_shows_examples_and_renders_markdown_without_html_injection() -> None:
+    """The welcome screen lists examples and the Markdown renderer builds DOM nodes, not HTML strings."""
+    from autographrs.assistant import ui
+
+    assert all(question in ui.HTML for question in ui.EXAMPLES)
+    assert "innerHTML" not in ui.JS and "insertAdjacentHTML" not in ui.JS
+    assert "noopener noreferrer" in ui.JS

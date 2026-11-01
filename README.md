@@ -967,7 +967,19 @@ Genie MCP e' asincrono: se il tool di domanda restituisce uno stato non terminal
 i 40s complessivi. `FAILED`/`CANCELLED` diventano `genie_query_failed`; il timeout diventa
 `genie_timeout`, restituito al modello come errore correggibile.
 
-**Log dell'agent.** Ogni richiesta ha un `trace_id` (mostrato nella barra di stato della UI
+**Stile delle risposte.** Il prompt separa le regole interne dallo stile verso l'utente:
+risposte dirette e brevi in Markdown leggero, lavori citati per titolo/autori/anno con il
+node_id tra parentesi (per domande successive), senza nomi dei tool o delle fonti (mai
+"(Genie)"), punteggi di similarita' o sezioni "Fonti";
+le evidenze grezze restano nel blocco richiudibile "Dettagli tecnici". I limiti sono
+menzionati solo quando cambiano la conclusione.
+
+**Interfaccia.** La UI (`assistant/ui.py`, nome visualizzato "AutoGraph") e' una chat a
+finestra unica con schermata di benvenuto e domande d'esempio. Il Markdown e' reso da un
+piccolo renderer interno che costruisce nodi DOM (niente `innerHTML`, niente CDN, compatibile
+con la CSP `script-src 'self'`); i link sono solo http(s) e si aprono in una nuova scheda.
+
+**Log dell'agent.** Ogni richiesta ha un `trace_id` (mostrato in "Dettagli tecnici" sotto la risposta
 e nei diagnostics degli errori). L'agent scrive una riga JSON `agent_trace` per ogni evento
 (`model_round`, `tool_call`, `empty_answer_retry`, `request_completed`, `request_failed`) con
 solo metadati: round, `finish_reason`, token prompt/completion, tool richiesti, esito e durata

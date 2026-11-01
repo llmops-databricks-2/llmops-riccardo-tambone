@@ -2,7 +2,7 @@ resources:
   apps:
     bibliographic_assistant:
       name: autographrs-rtambone-${bundle.target}
-      description: Private read-only bibliographic assistant; collection approved by setup_assistant.
+      description: "AutoGraph - chat sulla tua raccolta di paper arXiv: cerca per argomento, trova paper simili, esplora citazioni. Es.: \"Quali paper parlano di EEG?\""
       source_code_path: ..
       budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
       user_api_scopes:
