@@ -1,5 +1,7 @@
 # Project configuration for the LLMOps course, filled in for you at onboarding.
 # Resources are provisioned at onboarding except the volume, which you create during the course.
+# embedding_endpoint is the serving endpoint for ai_query, AI Search and DatabricksServingEndpoint;
+# embedding_service is the AI Gateway model service for the OpenAI client (README.md).
 
 # Your usage policy: set it on every serverless job, endpoint and app you create.
 usage_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
@@ -13,9 +15,10 @@ dev:
   schema: "riccardo_tambone"
   volume: "arxiv_files"
   llm_endpoint: "course_ops.gateway.chat"
-  embedding_endpoint: "course_ops.gateway.embed"
-  warehouse_id: "ce85f15d22846b60"
-  experiment_path: "/llmops/riccardo_tambone-dev"
+  embedding_endpoint: "databricks-gte-large-en"
+  embedding_service: "course_ops.gateway.embed"
+  warehouse_id: "cbb5a7d4b7979574"
+  experiment_path: "/llmops/riccardo-tambone-dev"
   # Your provisioned Lakebase project.
   lakebase_instance: "lb-llmops-riccardo-tambone"
 
@@ -25,9 +28,10 @@ acc:
   schema: "riccardo_tambone"
   volume: "arxiv_files"
   llm_endpoint: "course_ops.gateway.chat"
-  embedding_endpoint: "course_ops.gateway.embed"
-  warehouse_id: "ce85f15d22846b60"
-  experiment_path: "/llmops/riccardo_tambone-acc"
+  embedding_endpoint: "databricks-gte-large-en"
+  embedding_service: "course_ops.gateway.embed"
+  warehouse_id: "cbb5a7d4b7979574"
+  experiment_path: "/llmops/riccardo-tambone-acc"
   # Your provisioned Lakebase project for this environment.
   lakebase_instance: "lb-llmops-riccardo-tambone"
 
@@ -37,8 +41,9 @@ prd:
   schema: "riccardo_tambone"
   volume: "arxiv_files"
   llm_endpoint: "course_ops.gateway.chat"
-  embedding_endpoint: "course_ops.gateway.embed"
-  warehouse_id: "ce85f15d22846b60"
-  experiment_path: "/llmops/riccardo_tambone-prd"
+  embedding_endpoint: "databricks-gte-large-en"
+  embedding_service: "course_ops.gateway.embed"
+  warehouse_id: "cbb5a7d4b7979574"
+  experiment_path: "/llmops/riccardo-tambone-prd"
   # Your provisioned Lakebase project for this environment.
   lakebase_instance: "lb-llmops-riccardo-tambone"
