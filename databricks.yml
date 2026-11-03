@@ -25,17 +25,17 @@ targets:
     default: true
     mode: development
     workspace:
-      host: https://dbc-88df4c2c-4033.cloud.databricks.com
+      host: https://dbc-e81ca4d2-f6bd.cloud.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
 
   # Acceptance: deployed on every merge to main.
   acc:
     workspace:
-      host: https://dbc-88df4c2c-4033.cloud.databricks.com
+      host: https://dbc-e81ca4d2-f6bd.cloud.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
 
   # Production: deployed after acceptance, once you approve it.
   prd:
     workspace:
-      host: https://dbc-88df4c2c-4033.cloud.databricks.com
+      host: https://dbc-e81ca4d2-f6bd.cloud.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
