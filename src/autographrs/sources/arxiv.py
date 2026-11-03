@@ -12,7 +12,6 @@ from loguru import logger
 from autographrs.models import Paper, RankingCriteria, SearchRequest, SortOrder
 
 _ARXIV_VERSION_SUFFIX = re.compile(r"v\d+$")
-_ARXIV_ID_IN_TEXT = re.compile(r"\b(\d{4}\.\d{4,5})(?:v\d+)?\b")
 
 _CRITERIA_MAP: dict[RankingCriteria, arxiv.SortCriterion] = {
     RankingCriteria.RELEVANCE: arxiv.SortCriterion.Relevance,
@@ -260,10 +259,6 @@ class ArxivSource:
         if updated.tzinfo is None:
             updated = updated.replace(tzinfo=UTC)
 
-        # Extract any explicit arXiv IDs mentioned in abstract or comment as initial citations
-        text_for_refs = f"{clean_abstract} {result.comment or ''}"
-        cited_ids = sorted({m for m in _ARXIV_ID_IN_TEXT.findall(text_for_refs) if m != pid})
-
         pdf_url = result.pdf_url or f"https://arxiv.org/pdf/{pid}.pdf"
 
         return Paper(
@@ -280,5 +275,4 @@ class ArxivSource:
             journal_ref=result.journal_ref,
             html_url=result.entry_id,
             pdf_url=pdf_url,
-            cited_paper_ids=cited_ids,
         )

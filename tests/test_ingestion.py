@@ -1,5 +1,7 @@
 """Unit tests for paper ingestion, ArxivSource, and Delta/Volume storage."""
 
+import re
+from copy import deepcopy
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -100,15 +102,66 @@ class FakeSparkSession:
         self.sql_queries: list[str] = []
         self.tables: dict[str, list[dict[str, Any]]] = {}
         self.last_schema: str | None = None
+        self.schemas: dict[str, str] = {}
+        self.columns: dict[str, list[str]] = {}
+        self.views: dict[str, list[dict[str, Any]]] = {}
+        self.catalog = SimpleNamespace(dropTempView=lambda name: self.views.pop(name))
 
-    def sql(self, query: str) -> None:
-        """Record executed SQL statement."""
+    def sql(self, query: str, args: dict[str, object] | None = None) -> SimpleNamespace:
+        """Execute the store's small SQL surface in memory, recording the exact statements."""
         self.sql_queries.append(query)
+        names = re.findall(r"`([^`]+)`", query)
+        table = ".".join(names[:3])
+        selected: list[dict[str, Any]] = []
+        if query.startswith("CREATE TABLE"):
+            self.tables.setdefault(table, [])
+            schema = query.split("(", maxsplit=1)[1].rsplit(")", maxsplit=1)[0]
+            self.columns.setdefault(table, [part.strip().split()[0] for part in schema.split(",")])
+        elif query.startswith("ALTER TABLE"):
+            self.columns[table].append("source")
+            for record in self.tables[table]:
+                record.setdefault("source", None)
+        elif query.startswith("SELECT *"):
+            selected = [deepcopy(row) for row in self.tables[table] if row["run_id"] == (args or {})["run_id"]]
+        elif query.startswith("DELETE FROM"):
+            self.tables[table] = [row for row in self.tables[table] if row["run_id"] != (args or {})["run_id"]]
+        elif query.startswith("MERGE WITH"):
+            view = names[3]
+            keys = re.findall(r"target.`([^`]+)` = incoming.", query)
+            for record in self.views[view]:
+                existing = next(
+                    (row for row in self.tables[table] if all(row[key] == record[key] for key in keys)), None
+                )
+                if existing is None:
+                    self.tables[table].append(deepcopy(record))
+                elif "target.status = 'FAILED'" in query:
+                    if existing["status"] == "FAILED" and all(
+                        existing[key] == record[key] for key in ("request_json", "source", "download_pdfs", "enrich")
+                    ):
+                        existing.update(deepcopy(record))
+                elif "target.attempt_id = incoming.attempt_id" in query:
+                    if existing["status"] == "RUNNING" and existing["attempt_id"] == record["attempt_id"]:
+                        existing.update(deepcopy(record))
+                else:
+                    existing.update(deepcopy(record))
+            self.schemas[table] = self.last_schema or ""
+        elif not query.startswith("CREATE VOLUME"):
+            raise AssertionError(f"Unsupported test SQL: {query}")
+        return SimpleNamespace(
+            collect=lambda: [SimpleNamespace(asDict=lambda recursive, record=row: deepcopy(record)) for row in selected]
+        )
+
+    def table(self, name: str) -> SimpleNamespace:
+        """Return persisted table metadata used for key-column evolution."""
+        return SimpleNamespace(columns=self.columns[name])
 
     def createDataFrame(self, rows: list[dict[str, Any]], schema: str | None = None) -> SimpleNamespace:
         """Return an object with a `.write` attribute and record schema."""
         self.last_schema = schema
-        return SimpleNamespace(write=FakeSparkWriter(rows, self.tables))
+        return SimpleNamespace(
+            write=FakeSparkWriter(rows, self.tables),
+            createOrReplaceTempView=lambda name: self.views.update({name: deepcopy(rows)}),
+        )
 
 
 def test_canonical_arxiv_id_strips_url_and_version() -> None:
@@ -178,7 +231,7 @@ def test_arxiv_source_implements_protocol_and_filters_by_criteria() -> None:
     assert fake_client.last_search.sort_by == arxiv.SortCriterion.LastUpdatedDate
     assert len(papers) == 1
     assert papers[0].paper_id == "2405.00001"
-    assert papers[0].cited_paper_ids == ["2201.11111", "2305.00001", "2308.99999"]
+    assert "cited_paper_ids" not in papers[0].model_dump()
 
 
 def test_run_ingestion_downloads_pdfs_and_stores_in_delta(tmp_path: Path) -> None:
@@ -202,6 +255,7 @@ def test_run_ingestion_downloads_pdfs_and_stores_in_delta(tmp_path: Path) -> Non
             source=source,
             store=store,
             download_pdfs=True,
+            enrich=False,
         )
 
     assert len(result.papers) == 1
@@ -210,7 +264,7 @@ def test_run_ingestion_downloads_pdfs_and_stores_in_delta(tmp_path: Path) -> Non
     assert Path(paper.pdf_volume_path).exists()
 
     written_rows = fake_spark.tables["llmops_dev.riccardo_tambone.papers"]
-    assert fake_spark.last_schema == PAPERS_TABLE_DDL_SCHEMA
+    assert fake_spark.schemas["llmops_dev.riccardo_tambone.papers"] == PAPERS_TABLE_DDL_SCHEMA
     assert len(written_rows) == 1
     assert written_rows[0]["paper_id"] == "2401.12345"
     assert written_rows[0]["ranking_criteria"] == "relevance"
@@ -222,7 +276,8 @@ def test_build_run_id_and_records_serialization() -> None:
     """Run IDs and Delta records preserve expected fields."""
     fixed_now = datetime(2026, 10, 21, 14, 30, 0, tzinfo=UTC)
     run_id = build_run_id("Graph RAG & LLMs!", now=fixed_now)
-    assert run_id == "20261021_143000_graph_rag_llms"
+    assert run_id.startswith("20261021_143000_graph_rag_llms_")
+    assert run_id != build_run_id("Graph RAG & LLMs!", now=fixed_now)
 
     req = SearchRequest(topic="Graph RAG", num_papers=1)
     records = papers_to_records([], run_id=run_id, request=req)
