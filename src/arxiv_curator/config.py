@@ -14,7 +14,10 @@ class ProjectConfig(BaseModel):
     db_schema: str = Field(..., description="Schema name", alias="schema")
     volume: str = Field(..., description="Volume name")
     llm_endpoint: str = Field(..., description="AI Gateway chat model service name")
-    embedding_endpoint: str = Field(..., description="AI Gateway embedding model service name")
+    embedding_endpoint: str = Field(
+        ..., description="Embedding serving endpoint for ai_query, AI Search and model resources"
+    )
+    embedding_service: str = Field(..., description="AI Gateway embedding model service name for the OpenAI client")
     experiment_path: str = Field(..., description="MLflow experiment path for this environment")
     warehouse_id: str = Field(..., description="Warehouse ID")
     genie_space_id: str | None = Field(None, description="Genie space ID for MCP integration")
