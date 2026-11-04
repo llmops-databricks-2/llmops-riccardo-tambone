@@ -1,0 +1,2 @@
+command: ["uv", "run", "--frozen", "--no-dev", "--extra", "app", "python", "-m", "autographrs.assistant.web"]
+# Target-specific environment is supplied by the Bundle App config.

@@ -1,0 +1,59 @@
+resources:
+  apps:
+    bibliographic_assistant:
+      name: autographrs-rtambone-${bundle.target}
+      description: "AutoGraph - chat sulla tua raccolta di paper arXiv: cerca per argomento, trova paper simili, esplora citazioni. Es.: \"Quali paper parlano di EEG?\""
+      source_code_path: ..
+      budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
+      user_api_scopes:
+        - sql
+        - genie
+        - ai-gateway
+      permissions:
+        - user_name: ${workspace.current_user.userName}
+          level: CAN_MANAGE
+      config:
+        command: ["uv", "run", "--frozen", "--no-dev", "--extra", "app", "python", "-m", "autographrs.assistant.web"]
+        env:
+          - name: UV_NO_DEV
+            value: "true"
+          - name: AUTOGRAPHRS_ENV
+            value: ${bundle.target}
+          - name: AUTOGRAPHRS_APP_NAME
+            value: autographrs-rtambone-${bundle.target}
+  jobs:
+    setup_assistant:
+      name: setup-autographrs-assistant
+      budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
+      max_concurrent_runs: 1
+      parameters:
+        - name: env
+          default: ${bundle.target}
+        - name: app_name
+          default: ${resources.apps.bibliographic_assistant.name}
+        - name: run_id
+          default: ""
+        - name: graph_build_id
+          default: ""
+        - name: parent_path
+          default: ${workspace.root_path}
+        - name: sql_auth
+          default: user
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
+      tasks:
+        - task_key: configure
+          environment_key: default
+          notebook_task:
+            notebook_path: deployment_notebooks/setup_assistant.py
+            base_parameters:
+              env: "{{job.parameters.env}}"
+              app_name: "{{job.parameters.app_name}}"
+              run_id: "{{job.parameters.run_id}}"
+              graph_build_id: "{{job.parameters.graph_build_id}}"
+              parent_path: "{{job.parameters.parent_path}}"
+              sql_auth: "{{job.parameters.sql_auth}}"

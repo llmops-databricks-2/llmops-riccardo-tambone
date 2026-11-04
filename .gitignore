@@ -63,3 +63,6 @@ mlartifacts/
 # Temporary files
 *.tmp
 *.bak
+
+# Archify
+archify/

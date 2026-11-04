@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "59518094-5b3c-4485-a565-fdf048ff69c7",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\candidate.json",
+  "output": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+  "specification": {
+    "sha256": "8818eab2b79f6803395d9bce2fce2b63176f99754ebb6397a79474a4c4d2ff26",
+    "bytes": 9150
+  },
+  "artifact": {
+    "sha256": "eb5caf51a38868d0bb5ff3cb746c86e91267ced8917f87dd65f18c6321c23fc2",
+    "bytes": 856748
+  }
+}

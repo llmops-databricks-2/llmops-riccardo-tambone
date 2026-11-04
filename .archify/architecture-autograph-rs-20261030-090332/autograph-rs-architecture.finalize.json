@@ -1,0 +1,384 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-30T08:08:38.948Z",
+  "specification": {
+    "path": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\candidate.json",
+    "sha256": "8818eab2b79f6803395d9bce2fce2b63176f99754ebb6397a79474a4c4d2ff26",
+    "bytes": 9150
+  },
+  "artifact": {
+    "path": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+    "sha256": "eb5caf51a38868d0bb5ff3cb746c86e91267ced8917f87dd65f18c6321c23fc2",
+    "bytes": 856748
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Users\\ric\\.agents\\skills\\archify\\bin\\archify.mjs",
+        "deliver",
+        "architecture",
+        "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\candidate.json",
+        "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "8818eab2b79f6803395d9bce2fce2b63176f99754ebb6397a79474a4c4d2ff26",
+          "bytes": 9150
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 851,
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Users\\ric\\.agents\\skills\\archify\\bin\\archify.mjs",
+        "deliver",
+        "architecture",
+        "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\candidate.json",
+        "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "59518094-5b3c-4485-a565-fdf048ff69c7",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\candidate.json",
+        "output": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+        "specification": {
+          "sha256": "8818eab2b79f6803395d9bce2fce2b63176f99754ebb6397a79474a4c4d2ff26",
+          "bytes": 9150
+        },
+        "artifact": {
+          "sha256": "eb5caf51a38868d0bb5ff3cb746c86e91267ced8917f87dd65f18c6321c23fc2",
+          "bytes": 856748
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "https://github.com/llmops-databricks-2/llmops-riccardo-tambone",
+          "revision": "3ff9c912ba2ddec05cb80a7b00562e9710c584e0",
+          "references": 24
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 235,
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Users\\ric\\.agents\\skills\\archify\\bin\\archify.mjs",
+        "check",
+        "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+        "artifact": {
+          "sha256": "eb5caf51a38868d0bb5ff3cb746c86e91267ced8917f87dd65f18c6321c23fc2",
+          "bytes": 856748
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 0,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 22,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 7.5,
+            "maxBends": 2,
+            "routesOverSuggestedBends": 0,
+            "maxStretch": 1.261,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 24,
+            "minInteriorSegmentPx": 184,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [],
+            "detours": []
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 286,
+            "emptyTopRatio": 0.366,
+            "occupiedTop": 286,
+            "viewBoxTop": 0,
+            "canvasHeight": 782,
+            "typicalNodeHeight": 64,
+            "reviewSuggested": true
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 1158.75,
+            "actualBudgetPx": 1158.75,
+            "actualReaderWidth": 1188.75,
+            "desiredReaderWidth": 1188.75,
+            "viewportCap": 1376,
+            "limit": "source-size",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": true,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "edge",
+              "id": null,
+              "from": "job",
+              "to": "notebooks"
+            },
+            "minimumSourceTextPx": 8,
+            "minimumProjectedTextPx": 7.5,
+            "semanticTextCount": 32
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "59518094-5b3c-4485-a565-fdf048ff69c7"
+      }
+    },
+    "browser-check": {
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 161,
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Users\\ric\\.agents\\skills\\archify\\bin\\archify.mjs",
+        "browser-check",
+        "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+        "--json",
+        "--require-provenance"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": false,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "fail",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "59518094-5b3c-4485-a565-fdf048ff69c7",
+        "artifact": {
+          "path": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html",
+          "sha256": "eb5caf51a38868d0bb5ff3cb746c86e91267ced8917f87dd65f18c6321c23fc2",
+          "bytes": 856748
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "available",
+          "executable": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+        },
+        "diagnostics": [
+          {
+            "code": "viewer/browser-check-runtime",
+            "severity": "error",
+            "message": "browser-check could not complete its Chrome inspection.",
+            "subject": {
+              "artifact": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html"
+            },
+            "evidence": {
+              "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nWindows browser startup may have relaunched before connecting to the DevTools pipe. Retry from a non-elevated PowerShell opened normally, outside an elevated or compatibility-mode parent. Archify does not disable browser de-elevation or the sandbox to preserve pipe handles.\nChrome transport: Node v24.11.1, libuv 1.51.0, win32; pid=21856, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=false, ended=true, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+            },
+            "supportedFixes": [
+              "resolve the reported Chrome inspection error, then rerun browser-check"
+            ]
+          }
+        ],
+        "containment": {
+          "status": "fail",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": []
+        },
+        "themeStates": {
+          "status": "fail",
+          "viewports": []
+        },
+        "readability": {
+          "status": "fail",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": []
+        },
+        "viewerChrome": {
+          "status": "fail",
+          "viewports": []
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "receipt": "autograph-rs-architecture.browser-check.json",
+          "files": []
+        },
+        "error": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nWindows browser startup may have relaunched before connecting to the DevTools pipe. Retry from a non-elevated PowerShell opened normally, outside an elevated or compatibility-mode parent. Archify does not disable browser de-elevation or the sandbox to preserve pipe handles.\nChrome transport: Node v24.11.1, libuv 1.51.0, win32; pid=21856, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=false, ended=true, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      }
+    }
+  },
+  "browserCheck": {
+    "requested": true,
+    "ran": false
+  },
+  "diagnostics": [
+    {
+      "code": "viewer/browser-check-runtime",
+      "severity": "error",
+      "message": "browser-check could not complete its Chrome inspection.",
+      "subject": {
+        "artifact": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.html"
+      },
+      "evidence": {
+        "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nWindows browser startup may have relaunched before connecting to the DevTools pipe. Retry from a non-elevated PowerShell opened normally, outside an elevated or compatibility-mode parent. Archify does not disable browser de-elevation or the sandbox to preserve pipe handles.\nChrome transport: Node v24.11.1, libuv 1.51.0, win32; pid=21856, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=false, ended=true, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      },
+      "supportedFixes": [
+        "resolve the reported Chrome inspection error, then rerun browser-check"
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.finalize.json",
+    "summaryReceipt": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.finalize-summary.json",
+    "browserCheckReceipt": "C:\\Users\\ric\\Documents\\Projects\\llmops-riccardo-tambone\\.archify\\architecture-autograph-rs-20261030-090332\\autograph-rs-architecture.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "browser-check",
+  "finishedAt": "2026-10-30T08:08:40.771Z",
+  "durationMs": 1822,
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-30T08:08:39.203Z",
+    "source": "network",
+    "noticeRequired": false,
+    "noticeText": null
+  }
+}

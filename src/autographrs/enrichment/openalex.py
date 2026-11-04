@@ -42,6 +42,7 @@ class _Work(BaseModel):
     id: str
     doi: str | None = None
     title: str | None = None
+    abstract_inverted_index: dict[str, list[int]] | None = None
     publication_year: int | None = None
     authorships: list[_Authorship] | None = None
     locations: list[_Location] = Field(default_factory=list)

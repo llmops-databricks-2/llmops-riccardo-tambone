@@ -1,0 +1,25 @@
+resources:
+  jobs:
+    shutdown_assistant:
+      name: shutdown-autographrs-assistant
+      budget_policy_id: "891ab3b2-3b04-3ccb-8359-9327a16ef424"
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: "0 0 13,20 * * ?"
+        timezone_id: Europe/Rome
+        pause_status: UNPAUSED
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
+      tasks:
+        - task_key: stop_assistant
+          environment_key: default
+          timeout_seconds: 1500
+          notebook_task:
+            notebook_path: deployment_notebooks/assistant_lifecycle.py
+            base_parameters:
+              action: stop
+              app_name: ${resources.apps.bibliographic_assistant.name}
