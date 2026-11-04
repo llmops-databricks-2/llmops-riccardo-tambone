@@ -44,7 +44,13 @@ def resolve_collection(
     if pipeline_task_run_id <= 0 or pipeline_job_id <= 0:
         raise ValueError("Positive Databricks task run and pipeline job IDs are required")
     output = workspace.jobs.get_run_output(pipeline_task_run_id)
-    if output.error or not output.run_job_output or not output.run_job_output.run_id:
+    wrapper_state = output.metadata.state if output.metadata else None
+    if (
+        not output.run_job_output
+        or not output.run_job_output.run_id
+        or (wrapper_state and wrapper_state.result_state != RunResultState.SUCCESS)
+        or (output.error and not wrapper_state)
+    ):
         raise ValueError("Pipeline task has no successful child run output; deploy the updated pipeline first")
     child_id = output.run_job_output.run_id
     token = None

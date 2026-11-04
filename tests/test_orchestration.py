@@ -46,7 +46,11 @@ SUCCESS = RunState(result_state=RunResultState.SUCCESS)
 def _workspace() -> MagicMock:
     workspace = MagicMock()
     workspace.jobs.get_run_output.side_effect = [
-        RunOutput(run_job_output=RunJobOutput(run_id=200)),
+        RunOutput(
+            error="Please refer to the logs for this run on the triggered run details page.",
+            metadata=Run(state=SUCCESS),
+            run_job_output=RunJobOutput(run_id=200),
+        ),
         RunOutput(notebook_output=NotebookOutput(result=COLLECTION.model_dump_json(), truncated=False)),
     ]
     workspace.jobs.get_run.return_value = Run(
