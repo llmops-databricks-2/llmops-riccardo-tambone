@@ -217,15 +217,22 @@ def configure_assistant(
         f"{config.full_schema_name}.{nodes}",
     )
     title = f"{app_name}-bibliography"
+    space = None
     if previous:
-        # The title is derived from app_name and never changes; resending it renames the workspace node onto itself
-        # and fails with AlreadyExists.
-        space = workspace.genie.update_space(
-            previous.genie_space_id,
-            warehouse_id=config.warehouse_id,
-            serialized_space=definition,
-        )
-    else:
+        try:
+            # The title is derived from app_name and never changes; resending it renames the workspace node onto itself
+            # and fails with AlreadyExists.
+            space = workspace.genie.update_space(
+                previous.genie_space_id,
+                warehouse_id=config.warehouse_id,
+                serialized_space=definition,
+            )
+        except NotFound:
+            logger.warning(
+                "Previous Genie space {} not found (workspace migrated or deleted); recovering or creating space",
+                previous.genie_space_id,
+            )
+    if space is None:
         # Recover an owned space left by a setup failure after creation; do not create duplicates on retry.
         candidates = []
         token = None
@@ -355,15 +362,19 @@ def configure_assistant(
                     if not rights or rights["writable"]:
                         raise PermissionError("App Postgres role has inherited write privileges on retrieval tables")
             if previous and previous.snapshot.snapshot_id != snapshot.snapshot_id and previous.snapshot.document_count:
+                prev_table = snapshot_table(previous.snapshot.model_key, previous.snapshot.snapshot_id)
                 cur.execute(
-                    sql.SQL("REVOKE SELECT ON {} FROM {}").format(
-                        sql.Identifier(
-                            lakebase_schema(config),
-                            snapshot_table(previous.snapshot.model_key, previous.snapshot.snapshot_id),
-                        ),
-                        sql.Identifier(principal),
-                    )
+                    "SELECT to_regclass(%s) IS NOT NULL AS exists",
+                    (f'"{lakebase_schema(config)}"."{prev_table}"',),
                 )
+                prev_exists = cur.fetchone()
+                if prev_exists and prev_exists["exists"]:
+                    cur.execute(
+                        sql.SQL("REVOKE SELECT ON {} FROM {}").format(
+                            sql.Identifier(lakebase_schema(config), prev_table),
+                            sql.Identifier(principal),
+                        )
+                    )
     if previous and previous.sql_auth == "app" and sql_auth == "app" and previous.view_prefix != prefix:
         for suffix in ("papers", "citations", "bibliography"):
             workspace.grants.update(
