@@ -4,6 +4,10 @@
 bundle:
   name: llmops-riccardo-tambone
 
+variables:
+  assistant_experiment_id:
+    description: Existing course MLflow experiment; referenced, never created or destroyed by this bundle.
+
 # The course package is built as a wheel and installed in every job environment.
 artifacts:
   default:
@@ -24,18 +28,29 @@ targets:
   dev:
     default: true
     mode: development
+    variables:
+      assistant_experiment_id: "244896477021790"
+    resources:
+      jobs:
+        setup_assistant:
+          run_as:
+            user_name: ${workspace.current_user.userName}
     workspace:
       host: https://dbc-e81ca4d2-f6bd.cloud.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
 
   # Acceptance: deployed on every merge to main.
   acc:
+    variables:
+      assistant_experiment_id: "244896477021794"
     workspace:
       host: https://dbc-e81ca4d2-f6bd.cloud.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
 
   # Production: deployed after acceptance, once you approve it.
   prd:
+    variables:
+      assistant_experiment_id: "244896477021798"
     workspace:
       host: https://dbc-e81ca4d2-f6bd.cloud.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}

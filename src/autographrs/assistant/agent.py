@@ -1,4 +1,4 @@
-"""Bounded tool-calling orchestration over the course Gateway, without MLflow instrumentation."""
+"""Bounded tool-calling orchestration over the course Gateway with optional MLflow tracing."""
 
 import json
 import time
@@ -16,6 +16,7 @@ from autographrs.assistant.models import (
     ToolArgumentsError,
 )
 from autographrs.assistant.tools import ARGUMENTS, DESCRIPTIONS, BibliographicTools
+from autographrs.assistant.tracing import ConversationTracing, trace_span
 
 MAX_ROUNDS = 5
 MAX_TOOL_CALLS = 6
@@ -83,11 +84,23 @@ ANSWER STYLE (the rules above are for your reasoning; the user is a researcher, 
 class BibliographicAgent:
     """One bounded inference loop; clients cannot forge system or tool messages."""
 
-    def __init__(self, tools: BibliographicTools, client_factory: Callable[[], OpenAI]) -> None:
+    def __init__(
+        self,
+        tools: BibliographicTools,
+        client_factory: Callable[[], OpenAI],
+        tracing: ConversationTracing | None = None,
+    ) -> None:
         self.tools = tools
         self.client_factory = client_factory
+        self.tracing = tracing
 
     def chat(self, request: ChatRequest) -> dict:
+        """Trace the complete turn when running in the deployed App."""
+        if self.tracing is not None:
+            return self.tracing.record(request, self.tools.settings, lambda: self._chat(request))
+        return self._chat(request)
+
+    def _chat(self, request: ChatRequest) -> dict:
         """Stop on budget exhaustion or provider/tool failure, never return fabricated success."""
         messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": SYSTEM_PROMPT}]
         for message in request.messages:
@@ -152,22 +165,44 @@ class BibliographicAgent:
                     round_index == MAX_ROUNDS - 1 or calls >= MAX_TOOL_CALLS or evidence_exhausted or empty_turn
                 )
                 round_started = time.monotonic()
-                completions = client.with_options(timeout=min(30, remaining), max_retries=0).chat.completions
-                if answer_only:
-                    # Without tool schemas the model cannot spend the final round on a suppressed tool call.
-                    response = completions.create(
-                        model=self.tools.settings.config.llm_endpoint,
-                        messages=_synthesis_messages(conversation, evidence),
-                        max_tokens=MAX_OUTPUT_TOKENS,
-                    )
-                else:
-                    response = completions.create(
-                        model=self.tools.settings.config.llm_endpoint,
-                        messages=messages,
-                        tools=schemas,
-                        tool_choice="auto",
-                        max_tokens=MAX_OUTPUT_TOKENS,
-                    )
+                completions = client.with_options(timeout=min(60, remaining), max_retries=0).chat.completions
+                model_messages = _synthesis_messages(conversation, evidence) if answer_only else messages
+                with trace_span(
+                    "autograph.model",
+                    "LLM",
+                    {"messages": model_messages},
+                    {
+                        "round": round_index,
+                        "answer_only": answer_only,
+                        "model": self.tools.settings.config.llm_endpoint,
+                    },
+                ) as model_span:
+                    if answer_only:
+                        # Without tool schemas the model cannot spend the final round on a suppressed tool call.
+                        response = completions.create(
+                            model=self.tools.settings.config.llm_endpoint,
+                            messages=model_messages,
+                            max_tokens=MAX_OUTPUT_TOKENS,
+                        )
+                    else:
+                        response = completions.create(
+                            model=self.tools.settings.config.llm_endpoint,
+                            messages=model_messages,
+                            tools=schemas,
+                            tool_choice="auto",
+                            max_tokens=MAX_OUTPUT_TOKENS,
+                        )
+                    if model_span is not None:
+                        model_span.set_outputs(response.model_dump(mode="json"))
+                        if response.usage:
+                            model_span.set_attribute(
+                                "mlflow.chat.tokenUsage",
+                                {
+                                    "input_tokens": response.usage.prompt_tokens,
+                                    "output_tokens": response.usage.completion_tokens,
+                                    "total_tokens": response.usage.total_tokens,
+                                },
+                            )
                 choice = response.choices[0] if len(response.choices) == 1 else None
                 _trace(
                     trace_id,
@@ -232,7 +267,12 @@ class BibliographicAgent:
                                     "instruction": "No tool was executed. Answer with the evidence already gathered.",
                                 }
                             else:
-                                result = self.tools.invoke(name, _arguments(name, item.function.arguments))
+                                with trace_span(
+                                    name, "TOOL", {"arguments": item.function.arguments}, {"round": round_index}
+                                ) as tool_span:
+                                    result = self.tools.invoke(name, _arguments(name, item.function.arguments))
+                                    if tool_span is not None:
+                                        tool_span.set_outputs(result)
                                 outcome = "ok"
                         except RecoverableToolError as exc:
                             exc.tool = exc.tool or name

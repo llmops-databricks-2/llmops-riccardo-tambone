@@ -985,8 +985,8 @@ e nei diagnostics degli errori). L'agent scrive una riga JSON `agent_trace` per 
 solo metadati: round, `finish_reason`, token prompt/completion, tool richiesti, esito e durata
 in ms. Mai prompt, risposte o payload dei tool. Si leggono in Databricks dalla pagina
 dell'App → scheda **Logs**, filtrando per `agent_trace` o per il `trace_id`.
-Il tracing MLflow (span per round/tool) e' previsto come estensione successiva e riusera'
-gli stessi punti di misura.
+Il tracing MLflow affianca questi log: registra conversazioni, round e tool nell'esperimento
+del corso, come descritto nella sezione "Conversazioni e tracing MLflow" sotto.
 Il prompt indirizza ranking/conteggi completi delle citazioni a Genie: una pagina
 `get_neighbors` (default e massimo 100 vicini, limiti inferiori rispettati) non dimostra
 un ranking globale della raccolta. Ogni hop legge al massimo 100 archi con una query
@@ -1169,8 +1169,8 @@ L'orchestratore bibliografico e' un **agente custom Python nella Databricks App*
 il suo loop tool-calling chiama il modello chat del Gateway del corso. Non e' un
 modello nuovo, un endpoint Model Serving o una registrazione automatica nella scheda
 Agents/Agent Bricks. I template agent della UI sono un altro percorso di creazione
-e possono aggiungere Agent Server, MLflow, tracing e risorse gestite che qui non
-abbiamo introdotto.
+e possono aggiungere Agent Server e risorse gestite che qui non abbiamo introdotto.
+Il nostro agente custom integra direttamente MLflow Tracing, senza richiedere quel percorso.
 
 Il **Genie Agent** creato dal setup e' una risorsa distinta, visibile nella UI Genie
 secondo le ACL del workspace: interpreta domande analitiche sulle viste curate.
@@ -1198,7 +1198,7 @@ Limiti imposti dal codice:
   al modello sono limitati a 128000 caratteri cumulativi: oltre, il risultato non entra nel
   contesto, il modello riceve `evidence_budget_exhausted` e il round successivo e' solo risposta.
 - Budget di orchestrazione 120s verificato tra operazioni; chiamate Gateway con timeout
-  massimo 30s e senza retry, embedding 20s, Genie MCP 40s complessivi, SQL con polling
+  massimo 60s e senza retry, embedding 20s, Genie MCP 40s complessivi, SQL con polling
   limitato e cancellazione esplicita, statement PostgreSQL 20s. Il budget non e' una
   terminazione forzata di operazioni remote gia' in corso o un tetto monetario garantito.
 - Due chat concorrenti e due esecuzioni tool per processo; richieste oltre capacita' rifiutate.
@@ -1230,13 +1230,74 @@ Partire da dev e fermare la App quando non serve. `bundle destroy` non elimina l
 Genie creato dal job, le viste/manifest o i ruoli/grant SQL: la dismissione e' esplicita,
 senza cancellazioni automatiche di dati o altre risorse del corso.
 
-#### MLflow rimandato
+#### Conversazioni e tracing MLflow
 
-**Nessuna integrazione MLflow aggiunta**, su richiesta: niente autologging, tracking,
-tracing, registrazione modello o persistenza delle conversazioni. Lo storico chat
-rimane in memoria nel browser; il server restituisce le evidenze alla singola richiesta.
-Restano possibili i log di piattaforma/Gateway configurati dagli amministratori.
-MLflow, valutazione retrieval/risposte e metriche di qualita' saranno un incremento successivo.
+L'agente resta nella Databricks App; Genie resta un tool analitico, non l'orchestratore.
+MLflow 3.16.1, gia' nelle dipendenze del corso, registra:
+
+- Una trace `autograph.chat` per ciascun turno accettato ed eseguito dall'agente, anche
+  se termina con errore. Input e output della root sono domanda corrente e risposta finale.
+- Uno span `LLM` per round: contesto effettivamente inviato al modello, risposta, durata e
+  token input/output. Uno span `TOOL` per tentativo: argomenti, risultato o codice di errore.
+- ID della raccolta, graph build, snapshot degli embedding, modello e ID diagnostico
+  dell'agente. Errori dei provider sono registrati per tipo/codice, senza il testo grezzo
+  dell'eccezione che potrebbe contenere credenziali.
+- Una sessione `<app_name>:<conversation_id>` che raggruppa i turni della stessa chat.
+  "Nuova chat" e il ricaricamento della pagina generano un nuovo UUID; le vecchie trace
+  rimangono in MLflow anche quando la UI accorcia il contesto inviato al modello.
+
+**Dove leggere le conversazioni.** In Databricks aprire **Experiments**, selezionare
+`/llmops/riccardo-tambone-dev` (acc/prd per gli altri ambienti), quindi **Traces**.
+Filtrare per `autograph.chat` o per il session ID; la vista delle sessioni permette di
+raggruppare i turni. Aprire una trace per domanda/risposta e albero delle chiamate.
+L'ID MLflow e l'ID conversazione sono mostrati anche in "Dettagli tecnici" nella chat.
+Si tratta di osservabilita': lo storico non e' riapribile dalla UI e MLflow non aggiunge
+memoria all'agente. Richieste respinte prima dell'esecuzione (403/400/429) non generano trace.
+
+**Risorse e permessi.** Il bundle referenzia gli esperimenti esistenti del corso tramite
+`assistant_experiment_id` nei target (dev `244896477021790`, acc `244896477021794`,
+prd `244896477021798`): non li crea, importa o distrugge e non cambia la loro destinazione.
+Il bundle non associa direttamente tabelle o esperimenti all'App. Come nel notebook 5.1
+del corso, `setup_assistant` concede al principal generato per l'App
+`USE SCHEMA` e `READ_SECRET` sui due secret UC `databricks_client_id` e
+`databricks_client_secret`. Concede invece al principal del corso `SELECT` e `MODIFY`
+sulle quattro tabelle `llmops_otel_*` e `SELECT` sulle due viste `llmops_trace_*`.
+L'accesso `USE CATALOG` deve essere gia' predisposto per il principal dell'App e per
+il principal del corso: il setup non lo concede. I docenti hanno indicato che in dev
+`USE CATALOG` e' stato assegnato a tutti gli utenti; verificare che sia effettivo anche
+per i principal coinvolti. Il principal del corso deve gia' avere accesso allo schema e all'esperimento.
+All'avvio l'App legge i secret con la propria identita' e inizializza MLflow con quella
+del corso. Lakebase continua a usare il client App inizializzato prima del cambio delle
+credenziali di default; SQL, Genie e Gateway continuano a usare l'OAuth delegato.
+Il job in dev gira come l'utente che distribuisce il bundle. Se non puo' concedere
+`USE SCHEMA` o altri privilegi, un amministratore del corso deve applicare i grant o
+eseguire il setup con un'identita' autorizzata. Lo stesso vale per il deploy in acc/prd.
+
+**Registrazione e privacy.** Le conversazioni, i contesti LLM e le evidenze bibliografiche
+sono dati persistenti, visibili ai soggetti con accesso all'esperimento e alle tabelle UC
+(inclusi amministratori/docenti autorizzati); non inserire segreti o dati sensibili.
+La UI avvisa della registrazione. Non vengono aggiunte identita' personali o header HTTP.
+Retenzione e cancellazione restano quelle delle risorse del corso: niente cancellazioni
+automatiche. Le trace comprendono contenuti del modello non verificati, non una fonte di
+verita' bibliografica.
+
+La configurazione MLflow e' obbligatoria all'avvio dell'App. Su richiesta l'export usa
+il comportamento asincrono best-effort di MLflow: gli errori di export sono visibili nei log
+MLflow dell'App, senza bloccare le risposte o rieseguire l'inferenza. Lo shutdown ordinato
+esegue il flush; un crash puo' perdere trace ancora in coda. La presenza di un ID nella
+risposta non certifica l'avvenuta persistenza: questa si verifica nel collaudo, non con una
+query SQL per ogni turno. Per rileggere via SDK le trace UC da script/notebook, impostare
+`MLFLOW_TRACING_SQL_WAREHOUSE_ID` con il Warehouse del corso ed eseguire con un'identita'
+autorizzata. La App non riceve nuovi permessi SQL sul Warehouse per il tracing.
+
+**Deployment.** Eseguire `databricks bundle validate -t dev`, poi
+`databricks bundle deploy -t dev`. Prima di avviare l'App, rieseguire
+`databricks bundle run -t dev setup_assistant --params "run_id=<RUN_ID>,graph_build_id=<GRAPH_BUILD_ID>"`
+con gli ID gia' approvati, per applicare i nuovi grant. Solo dopo il successo del setup,
+eseguire `databricks bundle run -t dev bibliographic_assistant`. Dopo il riavvio inviare
+due domande, controllare che le trace abbiano lo stesso session ID, poi "Nuova chat" e
+verificare che cambi. Nessuna versione o risorsa preesistente del corso viene sostituita.
+Valutazione delle risposte, prompt registry e registrazione del modello restano futuri.
 
 ### Run snapshots, retries and reads
 

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
+import mlflow
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.config import Config
 from loguru import logger
@@ -41,6 +42,7 @@ from autographrs.assistant.models import (
 )
 from autographrs.assistant.sql import SqlReader, qualified
 from autographrs.assistant.tools import BibliographicTools
+from autographrs.assistant.tracing import ConversationTracing, configure_tracing
 from autographrs.config import load_config
 from autographrs.enrichment.llm import create_gateway_openai_client
 
@@ -353,7 +355,7 @@ def create_app(settings: AssistantSettings, tools: BibliographicTools, agent: Bi
     )
 
 
-def create_user_app(workspace: WorkspaceClient) -> Starlette:
+def create_user_app(workspace: WorkspaceClient, tracing: ConversationTracing | None = None) -> Starlette:
     """Load the collection on first consented request, retaining no user client or token between requests."""
     inner: Starlette | None = None
     lock = asyncio.Lock()
@@ -376,8 +378,12 @@ def create_user_app(workspace: WorkspaceClient) -> Starlette:
             yield
         finally:
             shutdown.set()
-            if runner is not None:
-                await runner
+            try:
+                if runner is not None:
+                    await runner
+            finally:
+                if tracing is not None:
+                    await run_in_threadpool(mlflow.flush_trace_async_logging)
 
     async def dispatch(scope: Scope, receive: Receive, send: Send) -> None:
         nonlocal inner, runner
@@ -414,7 +420,9 @@ def create_user_app(workspace: WorkspaceClient) -> Starlette:
                         tools = BibliographicTools(
                             settings, workspace, sql_workspace=user_workspace, gateway_workspace=user_workspace
                         )
-                        agent = BibliographicAgent(tools, lambda: create_gateway_openai_client(user_workspace()))
+                        agent = BibliographicAgent(
+                            tools, lambda: create_gateway_openai_client(user_workspace()), tracing=tracing
+                        )
                         candidate = create_app(settings, tools, agent)
                         ready = asyncio.get_running_loop().create_future()
                         runner = asyncio.create_task(run_lifespan(candidate, ready), context=Context())
@@ -449,8 +457,9 @@ def main() -> None:
             "Run this entrypoint inside Databricks Apps; local tests use create_app with injected doubles"
         )
     workspace = WorkspaceClient(config=Config(http_timeout_seconds=15, retry_timeout_seconds=20))
+    tracing = configure_tracing(workspace, load_config("project_config.yml", env=os.environ["AUTOGRAPHRS_ENV"]))
     uvicorn.run(
-        create_user_app(workspace),
+        create_user_app(workspace, tracing=tracing),
         host="0.0.0.0",
         port=int(os.environ.get("DATABRICKS_APP_PORT", "8000")),
         proxy_headers=False,

@@ -11,7 +11,8 @@ non ancora implementate. Primo graph builder Paper/CITES e task dedicato impleme
 verifica grafo sul workspace da completare. Embedding Gateway, snapshot Delta,
 indice Lakebase/pgvector e setup automatico nella pipeline implementati; verifica remota da fare.
 Assistente bibliografico read-only, App privata, tool e MCP implementati; primo deployment
-App/Genie e verifica dei grant reali ancora da eseguire. MLflow rimandato su richiesta.**
+App/Genie e verifica dei grant reali ancora da eseguire. Tracing MLflow delle conversazioni
+implementato; verifica del deployment App con i nuovi grant ancora da eseguire.**
 
 ---
 
@@ -76,7 +77,7 @@ Il sistema deve essere pronto, senza refactoring strutturali, a supportare:
 | LLM chat (AI Gateway) | `course_ops.gateway.chat` → GPT-OSS-120B, budget mensile per studente |
 | Embeddings (AI Gateway) | `course_ops.gateway.embed` → GTE Large |
 | SQL warehouse | `ce85f15d22846b60` |
-| MLflow experiments | `/llmops/riccardo_tambone-{dev,acc,prd}` |
+| MLflow experiments | `/llmops/riccardo-tambone-{dev,acc,prd}` |
 | Lakebase | `lb-llmops-riccardo-tambone`: progetto Autoscaling esistente condiviso; database `databricks_postgres`, schemi PostgreSQL `autographrs_{dev,acc,prd}`, scale-to-zero invariato |
 | Indice vettoriale | pgvector `vector(n)` + HNSW `vector_cosine_ops`, tabella/indice separati per snapshot; nessuna abilitazione Lakebase Search |
 | Usage/budget policy id | `891ab3b2-3b04-3ccb-8359-9327a16ef424` |
@@ -473,11 +474,22 @@ Risorsa attuale `resources/autograph_pipeline.job.yml`:
 
 ## 8. Aspetti LLMOps (richiesti dal corso)
 
-**Decisione attuale:** implementare l'assistente senza integrazione MLflow; tracking,
-tracing, valutazione e registrazione modello sono rimandati alla prossima parte del corso.
-I punti MLflow sotto sono requisiti futuri, non funzionalita' gia' attive.
+**Decisione attuale (17 novembre 2026):** mantenere l'agente custom nella Databricks App
+e Genie come tool, aggiungendo MLflow per conservare le conversazioni negli esperimenti
+esistenti del corso. Una trace per turno, session ID condiviso dalla chat, span LLM/tool,
+input/output, token, durate, errori sanitizzati e lineage della raccolta. Il bundle
+referenzia gli esperimenti senza associare le tabelle all'App. Come nella lezione 5,
+il setup concede all'App accesso ai due secret UC del corso e abilita il principal
+del corso sulle tabelle e viste di tracing. `USE CATALOG` e' un prerequisito esterno:
+il setup non concede privilegi a livello catalogo. Solo MLflow usa quel principal; restano
+invariate le identita' dei tool. Nessuna migrazione, cambio versioni o nuovo esperimento.
+La UI segnala la registrazione e mostra gli ID in "Dettagli tecnici"; la consultazione
+avviene in MLflow, non tramite storico riapribile nella chat. Export asincrono best-effort,
+errori di export nei log e flush allo shutdown; persistenza verificata nel collaudo,
+non riletta tramite SQL per ciascun turno. Nessuna ripetizione automatica dell'inferenza.
+Valutazione, registrazione modello e tracking della pipeline batch sotto restano futuri.
 
-- **MLflow Tracking & Tracing**: loggare per ogni run su `/llmops/riccardo_tambone-{env}`:
+- **MLflow Tracking & Tracing batch (futuro)**: loggare per ogni run su `/llmops/riccardo-tambone-{env}`:
   parametri (`query`, `num_papers`, `ranking_criteria`, `target_date`), metriche (n. paper
   scaricati, n. nodi/archi per tipo, token consumati), tracce delle chiamate tool-calling LLM e
   path del `.zip` generato.
@@ -670,7 +682,8 @@ nessun SQL/Python arbitrario. Trattare testi dei paper come dati non fidati, non
   Non e' una transazione distribuita: errori espliciti e setup ripetibile prima del riavvio.
 - Runtime App Python3.12 via uv/lock; extra opzionale app con MCP1.12.4, Starlette1.9.0,
   Uvicorn0.54.0 gia' nel lock: nessuna versione di pacchetto cambiata. Niente requirements.txt
-  root (forzerebbe pip/Python3.11 sulle Apps). Nessuna integrazione MLflow introdotta.
+  root (forzerebbe pip/Python3.11 sulle Apps). Tracing MLflow aggiunto successivamente
+  usando la versione gia' presente nelle dipendenze e gli esperimenti del corso.
 - Limiti: 12 messaggi/16000 caratteri, 5 round, 6 tool call, max_tokens1600, budget per
   round di 48000 prompt token (non cumulativo, perche' ogni round reinvia il contesto), tetto
   totale 160000 token, evidenze tool nel contesto massimo 128000 caratteri; budget120s

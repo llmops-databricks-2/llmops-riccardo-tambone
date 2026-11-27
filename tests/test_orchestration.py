@@ -38,6 +38,7 @@ from autographrs.assistant.orchestration import (
 )
 
 APP = "autographrs-test-dev"
+EXPERIMENT_ID = "244896477021790"
 URL = f"https://{APP}.databricksapps.com"
 COLLECTION = CollectionOutput(env="dev", run_id="collection-123", graph_build_id="build-456")
 SUCCESS = RunState(result_state=RunResultState.SUCCESS)
@@ -171,7 +172,7 @@ def test_lifecycle_rejects_pending_deployments_and_unconfirmed_stop() -> None:
     with pytest.raises(ValueError, match="pending"):
         stop_assistant(workspace, APP)
     with pytest.raises(ValueError, match="pending"):
-        start_assistant(workspace, APP, COLLECTION, "/Workspace/bundle/files", ["python"])
+        start_assistant(workspace, APP, COLLECTION, "/Workspace/bundle/files", ["python"], EXPERIMENT_ID)
     workspace.apps.get.return_value.pending_deployment = None
     workspace.apps.stop.return_value.result.return_value = App(
         name=APP,
@@ -191,7 +192,7 @@ def test_start_reuses_deployment_or_bootstraps_bundle_sources_with_target_env(ex
         app.active_deployment = None
     command = yaml.safe_load((ROOT / "app.yaml").read_text())["command"]
     with patch("autographrs.assistant.orchestration.verify_assistant") as verify:
-        start_assistant(workspace, APP, COLLECTION, "/Workspace/bundle/files", command)
+        start_assistant(workspace, APP, COLLECTION, "/Workspace/bundle/files", command, EXPERIMENT_ID)
     if existing:
         workspace.apps.start.assert_called_once_with(APP)
         workspace.apps.start.return_value.result.assert_called_once()
@@ -205,16 +206,40 @@ def test_start_reuses_deployment_or_bootstraps_bundle_sources_with_target_env(ex
             "UV_NO_DEV": "true",
             "AUTOGRAPHRS_ENV": "dev",
             "AUTOGRAPHRS_APP_NAME": APP,
+            "MLFLOW_TRACKING_URI": "databricks",
+            "MLFLOW_EXPERIMENT_ID": EXPERIMENT_ID,
+            "MLFLOW_ENABLE_ASYNC_TRACE_LOGGING": "true",
+            "MLFLOW_HTTP_REQUEST_TIMEOUT": "10",
+            "MLFLOW_HTTP_REQUEST_MAX_RETRIES": "1",
+        }
+        bundle_app = yaml.safe_load((ROOT / "resources" / "bibliographic_assistant.yml").read_text())
+        bundle_env = bundle_app["resources"]["apps"]["bibliographic_assistant"]["config"]["env"]
+        replacements = {
+            "${bundle.target}": COLLECTION.env,
+            "autographrs-rtambone-${bundle.target}": APP,
+            "${var.assistant_experiment_id}": EXPERIMENT_ID,
+        }
+        assert {var.name: var.value for var in deployment.env_vars} == {
+            item["name"]: replacements.get(item["value"], item["value"]) for item in bundle_env
         }
         workspace.apps.deploy.return_value.result.assert_called_once()
     verify.assert_called_once_with(workspace, APP, COLLECTION)
+
+
+def test_initial_deployment_requires_mlflow_experiment() -> None:
+    """Fail before deployment if the Bundle did not supply the experiment."""
+    workspace = _workspace()
+    workspace.apps.get.return_value.active_deployment = None
+    with pytest.raises(ValueError, match="MLflow experiment ID"):
+        start_assistant(workspace, APP, COLLECTION, "/Workspace/bundle/files", ["python"], "")
+    workspace.apps.deploy.assert_not_called()
 
 
 def test_repaired_start_checks_running_app_without_creating_a_second_deployment() -> None:
     """If start already succeeded remotely, a retry verifies scope instead of duplicating a deployment."""
     workspace = _workspace()
     with patch("autographrs.assistant.orchestration.verify_assistant") as verify:
-        start_assistant(workspace, APP, COLLECTION, "/Workspace/bundle/files", ["python"])
+        start_assistant(workspace, APP, COLLECTION, "/Workspace/bundle/files", ["python"], EXPERIMENT_ID)
     workspace.apps.start.assert_not_called()
     workspace.apps.deploy.assert_not_called()
     verify.assert_called_once()
@@ -347,6 +372,7 @@ def test_handoff_notebook_publishes_values_and_lifecycle_notebook_dispatches(
         "run_id": COLLECTION.run_id,
         "graph_build_id": COLLECTION.graph_build_id,
         "source_code_path": "/Workspace/bundle/files",
+        "experiment_id": EXPERIMENT_ID,
     }
     dbutils.widgets.get.side_effect = values.__getitem__
     monkeypatch.chdir(ROOT / "resources" / "deployment_notebooks")
@@ -362,6 +388,7 @@ def test_handoff_notebook_publishes_values_and_lifecycle_notebook_dispatches(
         runpy.run_path(str(ROOT / "resources" / "deployment_notebooks" / "assistant_lifecycle.py"))
         assert start.call_args.args[1:4] == (APP, COLLECTION, "/Workspace/bundle/files")
         assert start.call_args.args[4] == yaml.safe_load((ROOT / "app.yaml").read_text())["command"]
+        assert start.call_args.args[5] == EXPERIMENT_ID
         values["action"] = "invalid"
         with pytest.raises(ValueError, match="action"):
             runpy.run_path(str(ROOT / "resources" / "deployment_notebooks" / "assistant_lifecycle.py"))
