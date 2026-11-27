@@ -283,15 +283,11 @@ def configure_assistant(
         principal,
     )
     if sql_auth == "app":
-        for securable, name, privilege in (
-            ("catalog", config.catalog, Privilege.USE_CATALOG),
-            ("schema", config.full_schema_name, Privilege.USE_SCHEMA),
-        ):
-            workspace.grants.update(
-                securable_type=securable,
-                full_name=name,
-                changes=[PermissionsChange(principal=principal, add=[privilege])],
-            )
+        workspace.grants.update(
+            securable_type="schema",
+            full_name=config.full_schema_name,
+            changes=[PermissionsChange(principal=principal, add=[Privilege.USE_SCHEMA])],
+        )
         for view in (papers, citations, nodes, bibliography_view, "assistant_settings"):
             _grant_view(workspace, config, view, principal)
     elif previous and previous.sql_auth == "app":

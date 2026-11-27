@@ -43,11 +43,13 @@ def test_setup_selects_python_libpq_before_bootstrap(
         ),
         patch("databricks.sdk.WorkspaceClient"),
         patch("autographrs.config.load_config"),
+        patch("autographrs.assistant.trace_permissions.grant_trace_access") as grant,
     ):
         if implementation == "binary":
             with pytest.raises(RuntimeError, match="Restart the Python session"):
                 runpy.run_path(str(ROOT / "resources" / "deployment_notebooks" / "setup_assistant.py"))
             bootstrap.configure_assistant.assert_not_called()
+            grant.assert_not_called()
         else:
 
             def configure(**kwargs: object) -> MagicMock:
@@ -60,3 +62,11 @@ def test_setup_selects_python_libpq_before_bootstrap(
             bootstrap.configure_assistant.side_effect = configure
             runpy.run_path(str(ROOT / "resources" / "deployment_notebooks" / "setup_assistant.py"))
             bootstrap.configure_assistant.assert_called_once()
+            kwargs = bootstrap.configure_assistant.call_args.kwargs
+            config = kwargs["config"]
+            runtime.dbutils.secrets.get.assert_called_once_with(
+                catalog=config.catalog, schema=config.db_schema, key="databricks_client_id"
+            )
+            grant.assert_called_once_with(
+                kwargs["workspace"], config, values["app_name"], runtime.dbutils.secrets.get.return_value
+            )

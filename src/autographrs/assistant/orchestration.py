@@ -159,6 +159,7 @@ def start_assistant(
     collection: CollectionOutput,
     source_code_path: str,
     command: list[str],
+    experiment_id: str,
 ) -> None:
     """Restart the existing deployment, or deploy Bundle sources once after the first successful setup."""
     app = workspace.apps.get(app_name)
@@ -172,8 +173,9 @@ def start_assistant(
             not source_code_path.startswith("/Workspace/")
             or not command
             or not all(isinstance(part, str) and part for part in command)
+            or not experiment_id.strip()
         ):
-            raise ValueError("First App deployment requires Bundle workspace sources and a nonempty command")
+            raise ValueError("First App deployment requires Bundle workspace sources, command and MLflow experiment ID")
         workspace.apps.deploy(
             app_name,
             AppDeployment(
@@ -184,6 +186,11 @@ def start_assistant(
                     EnvVar(name="UV_NO_DEV", value="true"),
                     EnvVar(name="AUTOGRAPHRS_ENV", value=collection.env),
                     EnvVar(name="AUTOGRAPHRS_APP_NAME", value=app_name),
+                    EnvVar(name="MLFLOW_TRACKING_URI", value="databricks"),
+                    EnvVar(name="MLFLOW_EXPERIMENT_ID", value=experiment_id),
+                    EnvVar(name="MLFLOW_ENABLE_ASYNC_TRACE_LOGGING", value="true"),
+                    EnvVar(name="MLFLOW_HTTP_REQUEST_TIMEOUT", value="10"),
+                    EnvVar(name="MLFLOW_HTTP_REQUEST_MAX_RETRIES", value="1"),
                 ],
             ),
         ).result(timeout=timedelta(minutes=20))

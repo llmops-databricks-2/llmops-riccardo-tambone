@@ -1,6 +1,7 @@
 """Strict request contracts and an explicit, deployment-approved collection binding."""
 
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -88,6 +89,10 @@ class ChatRequest(StrictModel):
     """Bound conversation size before contacting any model."""
 
     messages: list[ChatMessage] = Field(min_length=1, max_length=12)
+    conversation_id: str = Field(
+        default_factory=lambda: str(uuid4()),
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    )
 
     @model_validator(mode="after")
     def validate_history(self) -> "ChatRequest":

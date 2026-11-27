@@ -11,7 +11,7 @@ from databricks.sdk.runtime import dbutils
 
 from autographrs.assistant.orchestration import CollectionOutput, start_assistant, stop_assistant
 
-names = ("action", "app_name", "env", "run_id", "graph_build_id", "source_code_path")
+names = ("action", "app_name", "env", "run_id", "graph_build_id", "source_code_path", "experiment_id")
 for name in names:
     dbutils.widgets.text(name, "")
 values = {name: dbutils.widgets.get(name).strip() for name in names}
@@ -29,6 +29,8 @@ elif values["action"] == "start":
         }
     )
     command = yaml.safe_load(Path("../../app.yaml").read_text())["command"]
-    start_assistant(workspace, values["app_name"], collection, values["source_code_path"], command)
+    start_assistant(
+        workspace, values["app_name"], collection, values["source_code_path"], command, values["experiment_id"]
+    )
 else:
     raise ValueError("App lifecycle action must be stop or start")

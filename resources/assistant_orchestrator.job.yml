@@ -81,5 +81,6 @@ resources:
               app_name: ${resources.apps.bibliographic_assistant.name}
               env: "{{job.parameters.env}}"
               source_code_path: ${workspace.file_path}
+              experiment_id: ${var.assistant_experiment_id}
               run_id: "{{tasks.resolve_collection.values.run_id}}"
               graph_build_id: "{{tasks.resolve_collection.values.graph_build_id}}"

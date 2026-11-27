@@ -26,7 +26,8 @@ trova articoli per argomento, scopri quelli simili, esplora citazioni e riferime
 <textarea id="question" required maxlength="8000" rows="1" placeholder="Chiedi qualcosa sulla raccolta..."></textarea>
 <button id="send" type="submit" aria-label="Invia"><svg viewBox="0 0 24 24" aria-hidden="true">
 <path d="M3 20.5 21 12 3 3.5 3 10l12 2-12 2z"/></svg></button></form>
-<p class="disclaimer">Le risposte possono contenere errori: verifica i paper citati. Accesso in sola lettura.</p>
+<p class="disclaimer">Le risposte possono contenere errori: verifica i paper citati. Accesso in sola lettura.
+Le conversazioni sono registrate in MLflow.</p>
 </footer><script src="/ui.js" defer></script></body></html>"""
 )
 
@@ -213,6 +214,7 @@ function technical(body, data) {
   const details = el('details');
   details.append(el('summary', '', 'Dettagli tecnici'));
   details.append(el('div', '', data.tool_calls + ' chiamate tool · ' + data.tokens + ' token · trace ' + data.trace_id));
+  if (data.mlflow_trace_id) details.append(el('div', '', 'MLflow trace ' + data.mlflow_trace_id + ' · conversazione ' + data.conversation_id));
   if (data.evidence && data.evidence.length) details.append(el('pre', '', JSON.stringify(data.evidence, null, 2)));
   body.append(details);
 }
@@ -226,6 +228,8 @@ fetch('/api/collection').then(async response => {
   scope.title = 'Run ' + data.run_id + ' · build ' + data.graph_build_id;
 }).catch(error => { document.querySelector('#scope').textContent = error.message; });
 
+let conversationId = crypto.randomUUID();
+
 async function ask(question) {
   if (busy || !question.trim()) return;
   busy = send.disabled = reset.disabled = true;
@@ -236,7 +240,7 @@ async function ask(question) {
   pending.className = 'body typing'; pending.append(el('span'), el('span'), el('span'));
   try {
     const response = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({messages})});
+      body: JSON.stringify({messages, conversation_id: conversationId})});
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Richiesta fallita');
     history.push({role: 'user', content: question}, {role: 'assistant', content: data.answer});
@@ -258,6 +262,7 @@ input.addEventListener('keydown', event => {
 });
 document.querySelectorAll('.example').forEach(button => { button.onclick = () => ask(button.textContent); });
 reset.onclick = () => {
+  conversationId = crypto.randomUUID();
   history.length = 0;
   conversation.querySelectorAll('.msg').forEach(node => node.remove());
   welcome.hidden = false; input.focus();

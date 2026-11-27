@@ -305,6 +305,21 @@ def _tool_call(name: str = "get_paper", arguments: str = '{"node_id":"paper"}') 
     return {"id": "call", "type": "function", "function": {"name": name, "arguments": arguments}}
 
 
+@pytest.mark.parametrize(("remaining", "expected"), [(120, 60), (25, 25)])
+def test_model_timeout_respects_call_and_operation_budgets(
+    settings: AssistantSettings, remaining: int, expected: int
+) -> None:
+    """Allow up to one minute, but never more than the remaining orchestration budget."""
+    tools = MagicMock(spec=BibliographicTools)
+    tools.settings = settings
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.with_options.return_value.chat.completions.create.return_value = _completion("answer")
+    with patch("autographrs.assistant.agent.time.monotonic", return_value=100.0):
+        BibliographicAgent(tools, lambda: client)._run([], [], 100.0 + remaining, "test")
+    client.with_options.assert_called_once_with(timeout=expected, max_retries=0)
+
+
 def test_agent_calls_real_tools_and_returns_auditable_evidence(settings: AssistantSettings) -> None:
     """The final answer is accompanied by actual tool results, not claimed tool calls from the model."""
     tools = MagicMock(spec=BibliographicTools)
@@ -686,6 +701,7 @@ def test_genie_definition_and_bundle_are_private_and_do_not_change_batch_environ
     assert job["environments"][0]["spec"]["environment_version"] == "5"
     assert {parameter["name"] for parameter in job["parameters"]} >= {"run_id", "graph_build_id"}
     assert not app.get("resources")
+    assert "experiments" not in resource
     assert next(parameter for parameter in job["parameters"] if parameter["name"] == "sql_auth")["default"] == "user"
     assert "--no-dev" in app["config"]["command"] and "--frozen" in app["config"]["command"]
 
@@ -801,7 +817,7 @@ def test_bundle_app_names_fit_platform_limit_for_every_target() -> None:
         "bibliographic_assistant"
     ]
     targets = yaml.safe_load((ROOT / "databricks.yml").read_text())["targets"]
-    env = {item["name"]: item["value"] for item in app["config"]["env"]}
+    env = {item["name"]: item["value"] for item in app["config"]["env"] if "value" in item}
     assert "${resources.apps.bibliographic_assistant." not in json.dumps(app)
     assert env["AUTOGRAPHRS_APP_NAME"] == app["name"]
     for target in targets:
@@ -952,6 +968,10 @@ def test_bootstrap_publishes_manifest_only_after_private_genie_and_read_grants(
         assert configured.sql_auth == sql_auth
         if sql_auth == "user":
             workspace.grants.update.assert_not_called()
+        else:
+            grants = workspace.grants.update.call_args_list
+            assert any(item.kwargs["securable_type"] == "schema" for item in grants)
+            assert all(item.kwargs["securable_type"] != "catalog" for item in grants)
         assert len(workspace.apps.set_permissions.call_args.kwargs["access_control_list"]) == 1
         configure_assistant(
             store.config,

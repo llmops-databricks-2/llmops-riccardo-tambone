@@ -21,6 +21,16 @@ resources:
             value: ${bundle.target}
           - name: AUTOGRAPHRS_APP_NAME
             value: autographrs-rtambone-${bundle.target}
+          - name: MLFLOW_TRACKING_URI
+            value: databricks
+          - name: MLFLOW_EXPERIMENT_ID
+            value: ${var.assistant_experiment_id}
+          - name: MLFLOW_ENABLE_ASYNC_TRACE_LOGGING
+            value: "true"
+          - name: MLFLOW_HTTP_REQUEST_TIMEOUT
+            value: "10"
+          - name: MLFLOW_HTTP_REQUEST_MAX_RETRIES
+            value: "1"
   jobs:
     setup_assistant:
       name: setup-autographrs-assistant
